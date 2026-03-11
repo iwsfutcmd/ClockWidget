@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:layout_marginBottom="8dp">
+        <LinearLayout
+            android:id="@+id/dialog_swatches"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"/>
+    </HorizontalScrollView>
+
+    <View
+        android:id="@+id/dialog_color_preview"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginBottom="8dp"/>
+
+    <EditText
+        android:id="@+id/dialog_hex"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="textNoSuggestions"
+        android:importantForAutofill="no"
+        android:hint="@string/color_hex_hint"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- R -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <TextView
+            android:layout_width="20dp"
+            android:layout_height="wrap_content"
+            android:text="R"
+            android:gravity="center"/>
+        <SeekBar
+            android:id="@+id/dialog_seek_r"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="255"/>
+        <TextView
+            android:id="@+id/dialog_label_r"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"/>
+    </LinearLayout>
+
+    <!-- G -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <TextView
+            android:layout_width="20dp"
+            android:layout_height="wrap_content"
+            android:text="G"
+            android:gravity="center"/>
+        <SeekBar
+            android:id="@+id/dialog_seek_g"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="255"/>
+        <TextView
+            android:id="@+id/dialog_label_g"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"/>
+    </LinearLayout>
+
+    <!-- B -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <TextView
+            android:layout_width="20dp"
+            android:layout_height="wrap_content"
+            android:text="B"
+            android:gravity="center"/>
+        <SeekBar
+            android:id="@+id/dialog_seek_b"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="255"/>
+        <TextView
+            android:id="@+id/dialog_label_b"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"/>
+    </LinearLayout>
+
+    <!-- A -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView
+            android:layout_width="20dp"
+            android:layout_height="wrap_content"
+            android:text="A"
+            android:gravity="center"/>
+        <SeekBar
+            android:id="@+id/dialog_seek_a"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="255"/>
+        <TextView
+            android:id="@+id/dialog_label_a"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"/>
+    </LinearLayout>
+
+</LinearLayout>

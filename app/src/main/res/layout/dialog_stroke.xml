@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
+
+    <!-- Width -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+        <TextView
+            android:layout_width="64dp"
+            android:layout_height="wrap_content"
+            android:text="Width"/>
+        <SeekBar
+            android:id="@+id/dialog_seek_stroke_width"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="200"/>
+        <TextView
+            android:id="@+id/dialog_label_stroke_width"
+            android:layout_width="52dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"/>
+    </LinearLayout>
+
+    <!-- Color -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView
+            android:layout_width="64dp"
+            android:layout_height="wrap_content"
+            android:text="Color"/>
+        <View
+            android:id="@+id/dialog_stroke_color_chip"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="8dp"/>
+        <Button
+            android:id="@+id/dialog_btn_stroke_color"
+            style="?attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Pick…"/>
+    </LinearLayout>
+
+</LinearLayout>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Clock Widget</string>
+    <string name="widget_description">Displays a date/time string using an ICU SimpleDateFormat pattern</string>
+    <string name="config_locale_label">Locale (BCP 47 tag)</string>
+    <string name="config_locale_hint">e.g. en-US</string>
+    <string name="config_skeleton_label">Skeleton (optional — fills Pattern)</string>
+    <string name="config_skeleton_hint">e.g. GGGGyMMMMdEEEEhmsBBBBVVVV</string>
+    <string name="config_pattern_label">ICU SimpleDateFormat Pattern</string>
+    <string name="config_pattern_hint">e.g. EEE, MMM d\nhh:mm a</string>
+    <string name="config_text_size_label">Text Size</string>
+    <string name="config_bg_color_label">Background Color (RGBA)</string>
+    <string name="config_text_color_label">Text Color (RGBA)</string>
+    <string name="color_hex_hint">#AARRGGBB</string>
+    <string name="set">Set</string>
+    <string name="save">Save</string>
+</resources>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    updatePeriodMillis="0": we use AlarmManager instead.
+    targetCellWidth/Height: Android 12+ grid sizing.
+    minWidth/minHeight: fallback for older launchers.
+    widgetFeatures="reconfigurable": lets user re-open config after adding.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="72dp"
+    android:minHeight="72dp"
+    android:minResizeWidth="72dp"
+    android:minResizeHeight="72dp"
+    android:targetCellWidth="1"
+    android:targetCellHeight="1"
+    android:maxResizeWidth="2000dp"
+    android:maxResizeHeight="2000dp"
+    android:updatePeriodMillis="0"
+    android:configure="dev.iwsfutcmd.clockwidget.ClockWidgetConfigActivity"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable"
+    android:previewLayout="@layout/widget_clock"
+    android:description="@string/widget_description"/>
