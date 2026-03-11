@@ -79,7 +79,7 @@ class ClockPrefs(private val context: Context, private val widgetId: Int) {
     fun clear() = prefs.edit().clear().apply()
 
     companion object {
-        const val DEFAULT_SKELETON = "GGGGyMMMMdEEEEhmsBBBBVVVV"
+        const val DEFAULT_SKELETON = "jm"
 
         fun defaultLocaleTag(): String = ULocale.getDefault().toLanguageTag()
 
