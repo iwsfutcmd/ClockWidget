@@ -3,55 +3,94 @@ package dev.iwsfutcmd.clockwidget
 import android.app.WallpaperManager
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
+import androidx.core.graphics.toColorInt
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.icu.text.DateTimePatternGenerator
 import android.icu.text.SimpleDateFormat
 import android.icu.util.ULocale
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.util.TypedValue
-import android.view.View
-import android.widget.Button
-import android.widget.CheckBox
-import android.widget.Toast
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.ImageView
-import android.widget.SeekBar
-import android.widget.TextView
-import android.widget.LinearLayout
-import androidx.annotation.AttrRes
-import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.R as M3R
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import kotlinx.coroutines.delay
+import org.json.JSONObject
 import java.util.Date
 
-class ClockWidgetConfigActivity : AppCompatActivity() {
-
-    private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
-    private val handler = Handler(Looper.getMainLooper())
-    private var tickRunnable: Runnable? = null
-    private var saveAction: (() -> Unit)? = null
-    private lateinit var bitmapPreviewView: ImageView
-
-    override fun onPause() {
-        saveAction?.invoke()
-        super.onPause()
-    }
-
-    override fun onDestroy() {
-        tickRunnable?.let { handler.removeCallbacks(it) }
-        super.onDestroy()
-    }
+class ClockWidgetConfigActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        widgetId = intent.getIntExtra(
+        enableEdgeToEdge()
+
+        val widgetId = intent.getIntExtra(
             AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID
         )
@@ -61,646 +100,1099 @@ class ClockWidgetConfigActivity : AppCompatActivity() {
         }
         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
 
-        setContentView(R.layout.activity_config)
-
-        val prefs = ClockPrefs(this, widgetId)
-
-        // ── Wallpaper background ─────────────────────────────────────────────
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            val wm = WallpaperManager.getInstance(this)
-            val wc = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
-            wc?.primaryColor?.toArgb()?.let { color ->
-                findViewById<FrameLayout>(R.id.preview_container).setBackgroundColor(color)
-            }
-        }
-
-        // ── Preview — inflated from the real widget layout ───────────────────
-
-        val previewContainer = findViewById<FrameLayout>(R.id.preview_container)
-        val previewView = layoutInflater.inflate(R.layout.widget_clock, previewContainer, false) as TextView
-
-        val density = resources.displayMetrics.density
-        val options = AppWidgetManager.getInstance(this).getAppWidgetOptions(widgetId)
-        val maxWidthDp  = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH,  0)
-        val maxHeightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)
-        if (maxWidthDp > 0 && maxHeightDp > 0) {
-            val clp = previewContainer.layoutParams
-            clp.width  = (maxWidthDp  * density).toInt()
-            clp.height = (maxHeightDp * density).toInt()
-            previewContainer.layoutParams = clp
-        }
-        previewView.layoutParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-        previewContainer.addView(previewView)
-        bitmapPreviewView = ImageView(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-            scaleType = ImageView.ScaleType.FIT_XY
-            visibility = View.GONE
-        }
-        previewContainer.addView(bitmapPreviewView)
-
-        // ── Text fields ──────────────────────────────────────────────────────
-
-        val localeEdit   = findViewById<EditText>(R.id.edit_locale)
-        val skeletonEdit = findViewById<EditText>(R.id.edit_skeleton)
-        val patternEdit  = findViewById<EditText>(R.id.edit_pattern)
-
-        var currentLocale  = prefs.localeTag
-        var currentPattern = prefs.pattern
-
-        localeEdit.setText(currentLocale)
-        skeletonEdit.setText(
-            DateTimePatternGenerator
-                .getInstance(ULocale.forLanguageTag(currentLocale))
-                .getSkeleton(currentPattern)
-        )
-        patternEdit.setText(escape(currentPattern))
-
-        localeEdit.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus) return@setOnFocusChangeListener
-            val input = localeEdit.text.toString().trim()
-            val tag = input.ifBlank { ClockPrefs.defaultLocaleTag() }
-            try {
-                val locale = ULocale.forLanguageTag(tag)
-                if (locale.language.isEmpty() && tag.isNotEmpty())
-                    throw IllegalArgumentException("Unrecognised locale tag: $tag")
-                currentLocale = tag
-                localeEdit.setText(tag)
-            } catch (e: Exception) {
-                showError(e.message ?: "Invalid locale")
-                localeEdit.setText(currentLocale)
-            }
-        }
-
-        fun applySkeleton() {
-            val skeleton = skeletonEdit.text.toString().trim()
-            try {
-                val locale  = ULocale.forLanguageTag(currentLocale)
-                val pattern = DateTimePatternGenerator.getInstance(locale).getBestPattern(skeleton)
-                currentPattern = pattern
-                patternEdit.setText(escape(pattern))
-            } catch (e: Exception) {
-                showError(e.message ?: "Invalid skeleton")
-                skeletonEdit.setText(
-                    DateTimePatternGenerator
-                        .getInstance(ULocale.forLanguageTag(currentLocale))
-                        .getSkeleton(currentPattern)
-                )
-            }
-        }
-
-        findViewById<Button>(R.id.btn_set_skeleton).setOnClickListener {
-            applySkeleton()
-        }
-
-        patternEdit.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus) return@setOnFocusChangeListener
-            val pattern = unescape(patternEdit.text.toString())
-            try {
-                SimpleDateFormat(pattern, ULocale.forLanguageTag(currentLocale))
-                currentPattern = pattern
-                skeletonEdit.setText(
-                    DateTimePatternGenerator
-                        .getInstance(ULocale.forLanguageTag(currentLocale))
-                        .getSkeleton(currentPattern)
-                )
-            } catch (e: Exception) {
-                showError(e.message ?: "Invalid pattern")
-                patternEdit.setText(escape(currentPattern))
-            }
-        }
-
-        // ── Style state ──────────────────────────────────────────────────────
-
-        var currentBgColor       = prefs.backgroundColor
-        var currentTextColor     = prefs.textColor
-        var currentTextSizeSp    = prefs.textSizeSp
-        var currentTextStyle     = prefs.textStyle
-        var currentFontFamily    = prefs.fontFamily
-        var currentUseBitmap     = prefs.useBitmapRendering
-        var currentUseCompose    = prefs.useComposeRendering
-        var currentShadowRadius  = prefs.shadowRadius
-        var currentShadowDx      = prefs.shadowDx
-        var currentShadowDy      = prefs.shadowDy
-        var currentShadowColor   = prefs.shadowColor
-        var currentStrokeWidth   = prefs.strokeWidth
-        var currentStrokeColor   = prefs.strokeColor
-
-        // ── Shared update helper ─────────────────────────────────────────────
-
-        fun refreshPreview() = updatePreview(
-            previewView, currentPattern, currentLocale,
-            currentTextSizeSp, currentBgColor, currentTextColor, currentTextStyle, currentFontFamily,
-            currentUseBitmap, currentUseCompose,
-            currentShadowRadius, currentShadowDx, currentShadowDy, currentShadowColor,
-            currentStrokeWidth, currentStrokeColor
-        )
-
-        // ── Style toolbar ────────────────────────────────────────────────────
-
-        val btnBold   = findViewById<MaterialButton>(R.id.btn_bold)
-        val btnItalic = findViewById<MaterialButton>(R.id.btn_italic)
-
-        btnBold.isChecked   = currentTextStyle and Typeface.BOLD   != 0
-        btnItalic.isChecked = currentTextStyle and Typeface.ITALIC != 0
-
-        fun syncStyle() {
-            currentTextStyle = (if (btnBold.isChecked) Typeface.BOLD else 0) or
-                               (if (btnItalic.isChecked) Typeface.ITALIC else 0)
-            refreshPreview()
-        }
-
-        btnBold.addOnCheckedChangeListener   { _, _ -> syncStyle() }
-        btnItalic.addOnCheckedChangeListener { _, _ -> syncStyle() }
-
-        findViewById<MaterialButton>(R.id.btn_text_size).setOnClickListener {
-            showTextSizeDialog(currentTextSizeSp,
-                onPreview = { size -> currentTextSizeSp = size; refreshPreview() }
-            ) { size -> currentTextSizeSp = size; refreshPreview() }
-        }
-
-        findViewById<MaterialButton>(R.id.btn_text_color).setOnClickListener {
-            showColorDialog(getString(R.string.config_text_color_label), currentTextColor,
-                onPreview = { color -> currentTextColor = color; refreshPreview() }
-            ) { color -> currentTextColor = color; refreshPreview() }
-        }
-
-        findViewById<MaterialButton>(R.id.btn_bg_color).setOnClickListener {
-            showColorDialog(getString(R.string.config_bg_color_label), currentBgColor,
-                onPreview = { color -> currentBgColor = color; refreshPreview() }
-            ) { color -> currentBgColor = color; refreshPreview() }
-        }
-
-        findViewById<MaterialButton>(R.id.btn_font_family).setOnClickListener {
-            showFontDialog(currentFontFamily, currentUseCompose) { family ->
-                currentFontFamily = family
-                refreshPreview()
-            }
-        }
-
-        val checkboxBitmap = findViewById<CheckBox>(R.id.checkbox_bitmap_mode)
-        checkboxBitmap.isChecked = currentUseBitmap
-        checkboxBitmap.setOnCheckedChangeListener { _, isChecked ->
-            currentUseBitmap = isChecked
-            refreshPreview()
-        }
-
-        val checkboxCompose = findViewById<CheckBox>(R.id.checkbox_compose_mode)
-        checkboxCompose.isChecked = currentUseCompose
-        checkboxCompose.setOnCheckedChangeListener { _, isChecked ->
-            currentUseCompose = isChecked
-            refreshPreview()
-        }
-
-        findViewById<MaterialButton>(R.id.btn_shadow).setOnClickListener {
-            showShadowDialog(
-                currentShadowRadius, currentShadowDx, currentShadowDy, currentShadowColor,
-                onPreview = { r, dx, dy, c ->
-                    currentShadowRadius = r; currentShadowDx = dx
-                    currentShadowDy = dy; currentShadowColor = c
-                    refreshPreview()
+        setContent {
+            ClockWidgetTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    ConfigScreen(widgetId)
                 }
-            ) { r, dx, dy, c ->
-                currentShadowRadius = r; currentShadowDx = dx
-                currentShadowDy = dy; currentShadowColor = c
-                refreshPreview()
             }
         }
-
-        findViewById<MaterialButton>(R.id.btn_stroke).setOnClickListener {
-            showStrokeDialog(currentStrokeWidth, currentStrokeColor,
-                onPreview = { w, c -> currentStrokeWidth = w; currentStrokeColor = c; refreshPreview() }
-            ) { w, c -> currentStrokeWidth = w; currentStrokeColor = c; refreshPreview() }
-        }
-
-        // ── Live preview tick ────────────────────────────────────────────────
-
-        val tick = object : Runnable {
-            override fun run() {
-                refreshPreview()
-                handler.postDelayed(this, 1_000L)
-            }
-        }
-        tickRunnable = tick
-        handler.post(tick)
-
-        // ── Autosave (called from onPause) ───────────────────────────────────
-
-        saveAction = {
-            prefs.pattern            = currentPattern
-            prefs.localeTag          = currentLocale
-            prefs.textSizeSp         = currentTextSizeSp
-            prefs.backgroundColor    = currentBgColor
-            prefs.textColor          = currentTextColor
-            prefs.textStyle          = currentTextStyle
-            prefs.fontFamily          = currentFontFamily
-            prefs.useBitmapRendering  = currentUseBitmap
-            prefs.useComposeRendering = currentUseCompose
-            prefs.shadowRadius        = currentShadowRadius
-            prefs.shadowDx           = currentShadowDx
-            prefs.shadowDy           = currentShadowDy
-            prefs.shadowColor        = currentShadowColor
-            prefs.strokeWidth        = currentStrokeWidth
-            prefs.strokeColor        = currentStrokeColor
-
-            val mgr = AppWidgetManager.getInstance(this)
-            ClockWidget.updateOne(this, mgr, widgetId)
-            ClockWidget.startService(this)
-        }
     }
+}
 
-    private fun themeColor(@AttrRes attr: Int): Int? {
-        val tv = TypedValue()
-        return if (theme.resolveAttribute(attr, tv, true)) tv.data else null
+// ── Theme ────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ClockWidgetTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val dark = isSystemInDarkTheme()
+    val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else {
+        if (dark) darkColorScheme() else lightColorScheme()
     }
+    MaterialTheme(colorScheme = colorScheme, content = content)
+}
 
-    private fun populateSwatches(container: LinearLayout, onPick: (Int) -> Unit) {
-        val attrs = listOf(
-            M3R.attr.colorPrimary,
-            M3R.attr.colorOnPrimary,
-            M3R.attr.colorPrimaryContainer,
-            M3R.attr.colorOnPrimaryContainer,
-            M3R.attr.colorSecondary,
-            M3R.attr.colorOnSecondary,
-            M3R.attr.colorTertiary,
-            M3R.attr.colorOnTertiary,
-            M3R.attr.colorSurface,
-            M3R.attr.colorOnSurface,
-            M3R.attr.colorSurfaceVariant,
-            M3R.attr.colorOnSurfaceVariant,
-            M3R.attr.colorError,
-            M3R.attr.colorOutline,
+// ── Main config screen ───────────────────────────────────────────────────────
+
+@Composable
+private fun ConfigScreen(widgetId: Int) {
+    val context = LocalContext.current
+    val prefs = remember { ClockPrefs(context, widgetId) }
+
+    // ── State ────────────────────────────────────────────────────────────────
+    var currentLocale by remember { mutableStateOf(prefs.localeTag) }
+    var currentPattern by remember { mutableStateOf(prefs.pattern) }
+    var localeText by remember { mutableStateOf(prefs.localeTag) }
+    var skeletonText by remember {
+        mutableStateOf(
+            DateTimePatternGenerator.getInstance(ULocale.forLanguageTag(prefs.localeTag))
+                .getSkeleton(prefs.pattern)
         )
-        val dp     = resources.displayMetrics.density
-        val size   = (32 * dp).toInt()
-        val margin = (4 * dp).toInt()
-        for (attr in attrs) {
-            val color = themeColor(attr) ?: continue
-            val swatch = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = margin }
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(color)
-                    setStroke((dp + 0.5f).toInt(), 0x33000000)
-                }
-                setOnClickListener { onPick(color) }
-            }
-            container.addView(swatch)
+    }
+    var patternText by remember { mutableStateOf(escape(prefs.pattern)) }
+    var bgColor by remember { mutableIntStateOf(prefs.backgroundColor) }
+    var textColor by remember { mutableIntStateOf(prefs.textColor) }
+    var textSizeSp by remember { mutableFloatStateOf(prefs.textSizeSp) }
+    var textStyle by remember { mutableIntStateOf(prefs.textStyle) }
+    var fontFamily by remember { mutableStateOf(prefs.fontFamily) }
+    var shadowRadius by remember { mutableFloatStateOf(prefs.shadowRadius) }
+    var shadowDx by remember { mutableFloatStateOf(prefs.shadowDx) }
+    var shadowDy by remember { mutableFloatStateOf(prefs.shadowDy) }
+    var shadowColor by remember { mutableIntStateOf(prefs.shadowColor) }
+    var strokeWidth by remember { mutableFloatStateOf(prefs.strokeWidth) }
+    var strokeColor by remember { mutableIntStateOf(prefs.strokeColor) }
+
+    // ── Dialog visibility ────────────────────────────────────────────────────
+    var activeDialog by remember { mutableStateOf<ActiveDialog>(ActiveDialog.None) }
+
+    // ── Preview bitmap ───────────────────────────────────────────────────────
+    var tick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var previewWidth by remember { mutableIntStateOf(0) }
+    var previewHeight by remember { mutableIntStateOf(0) }
+    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Live tick
+    LaunchedEffect(Unit) {
+        while (true) {
+            tick = System.currentTimeMillis()
+            delay(1_000L)
         }
     }
 
-    private fun showColorDialog(
-        title: String,
-        initial: Int,
-        onPreview: ((Int) -> Unit)? = null,
-        onApply: (Int) -> Unit
+    // Render bitmap whenever anything changes
+    LaunchedEffect(
+        tick, previewWidth, previewHeight,
+        currentPattern, currentLocale, textSizeSp, bgColor, textColor,
+        textStyle, fontFamily, shadowRadius, shadowDx, shadowDy, shadowColor,
+        strokeWidth, strokeColor
     ) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_color, null)
-
-        val preview  = dialogView.findViewById<View>(R.id.dialog_color_preview)
-        val hexEdit  = dialogView.findViewById<EditText>(R.id.dialog_hex)
-        val seekR    = dialogView.findViewById<SeekBar>(R.id.dialog_seek_r)
-        val seekG    = dialogView.findViewById<SeekBar>(R.id.dialog_seek_g)
-        val seekB    = dialogView.findViewById<SeekBar>(R.id.dialog_seek_b)
-        val seekA    = dialogView.findViewById<SeekBar>(R.id.dialog_seek_a)
-        val labelR   = dialogView.findViewById<TextView>(R.id.dialog_label_r)
-        val labelG   = dialogView.findViewById<TextView>(R.id.dialog_label_g)
-        val labelB   = dialogView.findViewById<TextView>(R.id.dialog_label_b)
-        val labelA   = dialogView.findViewById<TextView>(R.id.dialog_label_a)
-
-        seekR.progress = Color.red(initial)   ; labelR.text = "${Color.red(initial)}"
-        seekG.progress = Color.green(initial) ; labelG.text = "${Color.green(initial)}"
-        seekB.progress = Color.blue(initial)  ; labelB.text = "${Color.blue(initial)}"
-        seekA.progress = Color.alpha(initial) ; labelA.text = "${Color.alpha(initial)}"
-        preview.setBackgroundColor(initial)
-        hexEdit.setText(colorToHex(initial))
-
-        val currentColor: () -> Int = {
-            Color.argb(seekA.progress, seekR.progress, seekG.progress, seekB.progress)
-        }
-
-        fun seekListener(label: TextView) = object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                label.text = "$progress"
-                val color = currentColor()
-                preview.setBackgroundColor(color)
-                if (!hexEdit.hasFocus()) hexEdit.setText(colorToHex(color))
-                onPreview?.invoke(color)
-            }
-            override fun onStartTrackingTouch(sb: SeekBar) = Unit
-            override fun onStopTrackingTouch(sb: SeekBar) = Unit
-        }
-
-        seekR.setOnSeekBarChangeListener(seekListener(labelR))
-        seekG.setOnSeekBarChangeListener(seekListener(labelG))
-        seekB.setOnSeekBarChangeListener(seekListener(labelB))
-        seekA.setOnSeekBarChangeListener(seekListener(labelA))
-
-        populateSwatches(dialogView.findViewById(R.id.dialog_swatches)) { color ->
-            seekR.progress = Color.red(color)   ; labelR.text = "${Color.red(color)}"
-            seekG.progress = Color.green(color) ; labelG.text = "${Color.green(color)}"
-            seekB.progress = Color.blue(color)  ; labelB.text = "${Color.blue(color)}"
-            seekA.progress = Color.alpha(color) ; labelA.text = "${Color.alpha(color)}"
-            preview.setBackgroundColor(color)
-            hexEdit.setText(colorToHex(color))
-            onPreview?.invoke(color)
-        }
-
-        hexEdit.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus) return@setOnFocusChangeListener
-            try {
-                val color = Color.parseColor(hexEdit.text.toString().trim())
-                seekR.progress = Color.red(color)   ; labelR.text = "${Color.red(color)}"
-                seekG.progress = Color.green(color) ; labelG.text = "${Color.green(color)}"
-                seekB.progress = Color.blue(color)  ; labelB.text = "${Color.blue(color)}"
-                seekA.progress = Color.alpha(color) ; labelA.text = "${Color.alpha(color)}"
-                preview.setBackgroundColor(color)
-                onPreview?.invoke(color)
-            } catch (e: Exception) {
-                hexEdit.setText(colorToHex(currentColor()))
-            }
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(title)
-            .setView(dialogView)
-            .setPositiveButton(android.R.string.ok) { _, _ -> onApply(currentColor()) }
-            .setNegativeButton(android.R.string.cancel) { _, _ -> onPreview?.invoke(initial) }
-            .show()
-    }
-
-    private fun showTextSizeDialog(
-        initial: Float,
-        onPreview: ((Float) -> Unit)? = null,
-        onApply: (Float) -> Unit
-    ) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_text_size, null)
-        val seekSize  = dialogView.findViewById<SeekBar>(R.id.dialog_seek_size)
-        val labelSize = dialogView.findViewById<TextView>(R.id.dialog_label_size)
-
-        seekSize.progress = initial.toInt()
-        labelSize.text = "${initial.toInt()} sp"
-
-        seekSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                labelSize.text = "$progress sp"
-                onPreview?.invoke(progress.toFloat())
-            }
-            override fun onStartTrackingTouch(sb: SeekBar) = Unit
-            override fun onStopTrackingTouch(sb: SeekBar) = Unit
-        })
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(getString(R.string.config_text_size_label))
-            .setView(dialogView)
-            .setPositiveButton(android.R.string.ok) { _, _ -> onApply(seekSize.progress.toFloat()) }
-            .setNegativeButton(android.R.string.cancel) { _, _ -> onPreview?.invoke(initial) }
-            .show()
-    }
-
-    private fun colorToHex(color: Int) = String.format(
-        "#%02X%02X%02X%02X", Color.alpha(color), Color.red(color), Color.green(color), Color.blue(color))
-
-    private fun updatePreview(
-        view: TextView,
-        pattern: String,
-        localeTag: String,
-        textSizeSp: Float,
-        bgColor: Int,
-        textColor: Int,
-        textStyle: Int = Typeface.NORMAL,
-        fontFamily: String = "sans-serif",
-        useBitmap: Boolean = false,
-        useCompose: Boolean = false,
-        shadowRadius: Float = 0f,
-        shadowDx: Float = 0f,
-        shadowDy: Float = 0f,
-        shadowColor: Int = Color.TRANSPARENT,
-        strokeWidth: Float = 0f,
-        strokeColor: Int = Color.BLACK
-    ) {
+        if (previewWidth <= 0 || previewHeight <= 0) return@LaunchedEffect
         val text = try {
-            SimpleDateFormat(pattern, ULocale.forLanguageTag(localeTag)).format(Date())
-        } catch (e: Exception) { "—" }
-
-        if (useCompose && view.width > 0 && view.height > 0) {
-            val bmp = ComposeClockRenderer.renderToBitmap(
-                this, text, view.width, view.height,
-                textSizeSp, bgColor, textColor, fontFamily, textStyle,
-                shadowRadius, shadowDx, shadowDy, shadowColor,
-                strokeWidth, strokeColor
-            )
-            bitmapPreviewView.setImageBitmap(bmp)
-            bitmapPreviewView.visibility = View.VISIBLE
-            view.visibility = View.GONE
-            return
-        }
-
-        if (useBitmap && view.width > 0 && view.height > 0) {
-            val bmp = ClockWidget.renderBitmap(
-                this, text, view.width, view.height,
-                textSizeSp, bgColor, textColor, fontFamily, textStyle,
-                shadowRadius, shadowDx, shadowDy, shadowColor,
-                strokeWidth, strokeColor
-            )
-            bitmapPreviewView.setImageBitmap(bmp)
-            bitmapPreviewView.visibility = View.VISIBLE
-            view.visibility = View.GONE
-            return
-        }
-
-        bitmapPreviewView.visibility = View.GONE
-        view.visibility = View.VISIBLE
-
-        val dm = view.resources.displayMetrics
-        val cornerPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18f, dm)
-        view.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = cornerPx
-            setColor(bgColor)
-        }
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
-        view.setTextColor(textColor)
-        view.setTypeface(Typeface.create(fontFamily, Typeface.NORMAL), textStyle)
-        view.setShadowLayer(0f, 0f, 0f, 0)
-        view.text = text
+            SimpleDateFormat(currentPattern, ULocale.forLanguageTag(currentLocale)).format(Date())
+        } catch (_: Exception) { "\u2014" }
+        bitmap = ComposeClockRenderer.renderToBitmap(
+            context, text, previewWidth, previewHeight,
+            textSizeSp, bgColor, textColor, fontFamily, textStyle,
+            shadowRadius, shadowDx, shadowDy, shadowColor,
+            strokeWidth, strokeColor
+        )
     }
 
-    private fun showFontDialog(initial: String, isComposeMode: Boolean, onApply: (String) -> Unit) {
-        val families = arrayOf("sans-serif", "serif", "monospace", "cursive")
-        val labels: Array<String> = if (isComposeMode)
-            arrayOf("Sans-serif", "Serif", "Monospace", "Cursive", "Google Font…")
-        else
-            arrayOf("Sans-serif", "Serif", "Monospace", "Cursive")
-        val current = families.indexOf(initial)
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Font family")
-            .setSingleChoiceItems(labels, current) { dialog, which ->
-                dialog.dismiss()
-                if (which < families.size) onApply(families[which])
-                else showGoogleFontInput(initial, onApply)
+    // ── Auto-save on pause ───────────────────────────────────────────────────
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        prefs.pattern = currentPattern
+        prefs.localeTag = currentLocale
+        prefs.textSizeSp = textSizeSp
+        prefs.backgroundColor = bgColor
+        prefs.textColor = textColor
+        prefs.textStyle = textStyle
+        prefs.fontFamily = fontFamily
+        prefs.shadowRadius = shadowRadius
+        prefs.shadowDx = shadowDx
+        prefs.shadowDy = shadowDy
+        prefs.shadowColor = shadowColor
+        prefs.strokeWidth = strokeWidth
+        prefs.strokeColor = strokeColor
+
+        val mgr = AppWidgetManager.getInstance(context)
+        ClockWidget.updateOne(context, mgr, widgetId)
+        ClockWidget.startService(context)
+    }
+
+    // ── Wallpaper color ──────────────────────────────────────────────────────
+    val wallpaperColor = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            val wm = WallpaperManager.getInstance(context)
+            wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
+                ?.primaryColor?.toArgb()
+        } else null
+    }
+
+    // ── Widget size hint for preview ─────────────────────────────────────────
+    val options = remember { AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId) }
+    val maxWidthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 0)
+    val maxHeightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)
+
+    // ── Layout ───────────────────────────────────────────────────────────────
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Preview
+        val previewBg = wallpaperColor?.let { androidx.compose.ui.graphics.Color(it) }
+            ?: MaterialTheme.colorScheme.surfaceVariant
+        val previewModifier = if (maxWidthDp > 0 && maxHeightDp > 0) {
+            Modifier
+                .width(maxWidthDp.dp)
+                .height(maxHeightDp.dp)
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .height(140.dp)
+        }
+        Box(
+            modifier = Modifier
+                .padding(16.dp)
+                .then(previewModifier)
+                .background(previewBg)
+                .onSizeChanged { size ->
+                    previewWidth = size.width
+                    previewHeight = size.height
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            bitmap?.let { bmp ->
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        }
+
+        // Scrollable controls
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
+        ) {
+            Text(
+                stringResource(R.string.app_name),
+                style = MaterialTheme.typography.titleLarge
+            )
+            Spacer(Modifier.height(12.dp))
+
+            // ── Locale ───────────────────────────────────────────────────────
+            Text(
+                stringResource(R.string.config_locale_label),
+                style = MaterialTheme.typography.labelLarge
+            )
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = localeText,
+                onValueChange = { localeText = it },
+                placeholder = { Text(stringResource(R.string.config_locale_hint)) },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { state ->
+                        if (!state.isFocused) {
+                            val input = localeText.trim()
+                            val tag = input.ifBlank { ClockPrefs.defaultLocaleTag() }
+                            try {
+                                val locale = ULocale.forLanguageTag(tag)
+                                if (locale.language.isEmpty() && tag.isNotEmpty())
+                                    throw IllegalArgumentException("Unrecognised locale tag: $tag")
+                                currentLocale = tag
+                                localeText = tag
+                            } catch (e: Exception) {
+                                activeDialog = ActiveDialog.Error(e.message ?: "Invalid locale")
+                                localeText = currentLocale
+                            }
+                        }
+                    }
+            )
+            Spacer(Modifier.height(16.dp))
+
+            // ── Skeleton ─────────────────────────────────────────────────────
+            Text(
+                stringResource(R.string.config_skeleton_label),
+                style = MaterialTheme.typography.labelLarge
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = skeletonText,
+                    onValueChange = { skeletonText = it },
+                    placeholder = { Text(stringResource(R.string.config_skeleton_hint)) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = {
+                    val skeleton = skeletonText.trim()
+                    try {
+                        val locale = ULocale.forLanguageTag(currentLocale)
+                        val pattern = DateTimePatternGenerator.getInstance(locale)
+                            .getBestPattern(skeleton)
+                        currentPattern = pattern
+                        patternText = escape(pattern)
+                    } catch (e: Exception) {
+                        activeDialog = ActiveDialog.Error(e.message ?: "Invalid skeleton")
+                        skeletonText = DateTimePatternGenerator
+                            .getInstance(ULocale.forLanguageTag(currentLocale))
+                            .getSkeleton(currentPattern)
+                    }
+                }) { Text(stringResource(R.string.set)) }
+            }
+            Spacer(Modifier.height(16.dp))
+
+            // ── Pattern ──────────────────────────────────────────────────────
+            Text(
+                stringResource(R.string.config_pattern_label),
+                style = MaterialTheme.typography.labelLarge
+            )
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = patternText,
+                onValueChange = { patternText = it },
+                placeholder = { Text(stringResource(R.string.config_pattern_hint)) },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { state ->
+                        if (!state.isFocused) {
+                            val pattern = unescape(patternText)
+                            try {
+                                SimpleDateFormat(
+                                    pattern,
+                                    ULocale.forLanguageTag(currentLocale)
+                                )
+                                currentPattern = pattern
+                                skeletonText = DateTimePatternGenerator
+                                    .getInstance(ULocale.forLanguageTag(currentLocale))
+                                    .getSkeleton(currentPattern)
+                            } catch (e: Exception) {
+                                activeDialog = ActiveDialog.Error(e.message ?: "Invalid pattern")
+                                patternText = escape(currentPattern)
+                            }
+                        }
+                    }
+            )
+            Spacer(Modifier.height(16.dp))
+
+            // ── Style toolbar ────────────────────────────────────────────────
+            StyleToolbar(
+                textStyle = textStyle,
+                onBoldToggle = { bold ->
+                    textStyle = (if (bold) textStyle or Typeface.BOLD else textStyle and Typeface.BOLD.inv())
+                },
+                onItalicToggle = { italic ->
+                    textStyle = (if (italic) textStyle or Typeface.ITALIC else textStyle and Typeface.ITALIC.inv())
+                },
+                onTextSize = { activeDialog = ActiveDialog.TextSize },
+                onTextColor = { activeDialog = ActiveDialog.Color(ColorTarget.TEXT) },
+                onBgColor = { activeDialog = ActiveDialog.Color(ColorTarget.BACKGROUND) },
+                onFont = { activeDialog = ActiveDialog.Font },
+                onShadow = { activeDialog = ActiveDialog.Shadow },
+                onStroke = { activeDialog = ActiveDialog.Stroke }
+            )
+        }
     }
 
-    private fun showGoogleFontInput(initial: String, onApply: (String) -> Unit) {
-        val dp16 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
-        val input = EditText(this).apply {
-            hint = "e.g. Josefin Sans"
-            if (initial !in listOf("sans-serif", "serif", "monospace", "cursive")) setText(initial)
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or
-                        android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            setPadding(dp16, dp16 / 2, dp16, dp16 / 2)
+    // ── Dialogs ──────────────────────────────────────────────────────────────
+
+    val dismiss = { activeDialog = ActiveDialog.None }
+
+    when (val dialog = activeDialog) {
+        ActiveDialog.None -> {}
+
+        is ActiveDialog.Color -> {
+            val target = dialog.target
+            ColorPickerDialog(
+                title = when (target) {
+                    ColorTarget.TEXT -> stringResource(R.string.config_text_color_label)
+                    ColorTarget.BACKGROUND -> stringResource(R.string.config_bg_color_label)
+                    ColorTarget.SHADOW -> "Shadow color"
+                    ColorTarget.STROKE -> "Stroke color"
+                },
+                initialColor = when (target) {
+                    ColorTarget.TEXT -> textColor
+                    ColorTarget.BACKGROUND -> bgColor
+                    ColorTarget.SHADOW -> shadowColor
+                    ColorTarget.STROKE -> strokeColor
+                },
+                onColorChange = { color ->
+                    when (target) {
+                        ColorTarget.TEXT -> textColor = color
+                        ColorTarget.BACKGROUND -> bgColor = color
+                        ColorTarget.SHADOW -> shadowColor = color
+                        ColorTarget.STROKE -> strokeColor = color
+                    }
+                },
+                onDismiss = dismiss,
+                onConfirm = dismiss
+            )
         }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Google Font name")
-            .setMessage("Enter a family name exactly as it appears on fonts.google.com")
-            .setView(input)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isNotEmpty()) {
-                    onApply(name)
-                    ComposeClockRenderer.validateGoogleFont(this, name) { error ->
-                        if (error != null) {
-                            Toast.makeText(this, "Font error: $error", Toast.LENGTH_LONG).show()
+
+        ActiveDialog.TextSize -> TextSizeDialog(
+            initial = textSizeSp,
+            onPreview = { textSizeSp = it },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
+        ActiveDialog.Shadow -> ShadowDialog(
+            initialRadius = shadowRadius,
+            initialDx = shadowDx,
+            initialDy = shadowDy,
+            initialColor = shadowColor,
+            onPreview = { r, dx, dy, c ->
+                shadowRadius = r; shadowDx = dx; shadowDy = dy; shadowColor = c
+            },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
+        ActiveDialog.Stroke -> StrokeDialog(
+            initialWidth = strokeWidth,
+            initialColor = strokeColor,
+            onPreview = { w, c -> strokeWidth = w; strokeColor = c },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
+        ActiveDialog.Font -> FontDialog(
+            initial = fontFamily,
+            onDismiss = dismiss,
+            onConfirm = { family ->
+                fontFamily = family
+                dismiss()
+            }
+        )
+
+        is ActiveDialog.Error -> ErrorDialog(
+            message = dialog.message,
+            onDismiss = dismiss
+        )
+    }
+}
+
+// ── Dialog state ─────────────────────────────────────────────────────────────
+
+private enum class ColorTarget { TEXT, BACKGROUND, SHADOW, STROKE }
+
+private sealed interface ActiveDialog {
+    data object None : ActiveDialog
+    data class Color(val target: ColorTarget) : ActiveDialog
+    data object TextSize : ActiveDialog
+    data object Shadow : ActiveDialog
+    data object Stroke : ActiveDialog
+    data object Font : ActiveDialog
+    data class Error(val message: String) : ActiveDialog
+}
+
+// ── Style toolbar ────────────────────────────────────────────────────────────
+
+@Composable
+private fun StyleToolbar(
+    textStyle: Int,
+    onBoldToggle: (Boolean) -> Unit,
+    onItalicToggle: (Boolean) -> Unit,
+    onTextSize: () -> Unit,
+    onTextColor: () -> Unit,
+    onBgColor: () -> Unit,
+    onFont: () -> Unit,
+    onShadow: () -> Unit,
+    onStroke: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        IconToggleButton(
+            checked = textStyle and Typeface.BOLD != 0,
+            onCheckedChange = onBoldToggle
+        ) {
+            Icon(painterResource(R.drawable.ic_format_bold), contentDescription = "Bold")
+        }
+        IconToggleButton(
+            checked = textStyle and Typeface.ITALIC != 0,
+            onCheckedChange = onItalicToggle
+        ) {
+            Icon(painterResource(R.drawable.ic_format_italic), contentDescription = "Italic")
+        }
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onTextSize) {
+            Icon(painterResource(R.drawable.ic_format_size), contentDescription = "Text size")
+        }
+        IconButton(onClick = onTextColor) {
+            Icon(painterResource(R.drawable.ic_format_color_text), contentDescription = "Text color")
+        }
+        IconButton(onClick = onBgColor) {
+            Icon(painterResource(R.drawable.ic_palette), contentDescription = "Background color")
+        }
+        IconButton(onClick = onFont) {
+            Icon(painterResource(R.drawable.ic_font_family), contentDescription = "Font family")
+        }
+        IconButton(onClick = onShadow) {
+            Icon(painterResource(R.drawable.ic_shadow), contentDescription = "Text shadow")
+        }
+        IconButton(onClick = onStroke) {
+            Icon(painterResource(R.drawable.ic_stroke), contentDescription = "Text outline")
+        }
+    }
+}
+
+// ── Color picker dialog ──────────────────────────────────────────────────────
+
+@Composable
+private fun ColorPickerDialog(
+    title: String,
+    initialColor: Int,
+    onColorChange: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Dialog(onDismissRequest = { onColorChange(initialColor); onDismiss() }) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            ColorPickerContent(
+                title = title,
+                initialColor = initialColor,
+                onColorChange = onColorChange,
+                onBack = { onColorChange(initialColor); onDismiss() },
+                onConfirm = onConfirm
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColorPickerContent(
+    title: String,
+    initialColor: Int,
+    onColorChange: (Int) -> Unit,
+    onBack: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    var r by remember { mutableIntStateOf(Color.red(initialColor)) }
+    var g by remember { mutableIntStateOf(Color.green(initialColor)) }
+    var b by remember { mutableIntStateOf(Color.blue(initialColor)) }
+    var a by remember { mutableIntStateOf(Color.alpha(initialColor)) }
+    var hexText by remember { mutableStateOf(colorToHex(initialColor)) }
+    var hexFocused by remember { mutableStateOf(false) }
+
+    val currentColor = Color.argb(a, r, g, b)
+
+    // Live preview callback
+    LaunchedEffect(r, g, b, a) {
+        onColorChange(Color.argb(a, r, g, b))
+        if (!hexFocused) hexText = colorToHex(Color.argb(a, r, g, b))
+    }
+
+    fun applyColor(color: Int) {
+        r = Color.red(color)
+        g = Color.green(color)
+        b = Color.blue(color)
+        a = Color.alpha(color)
+        hexText = colorToHex(color)
+    }
+
+    Column(modifier = Modifier.padding(24.dp)) {
+        Text(title, style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(16.dp))
+
+        ThemeSwatches(onPick = ::applyColor)
+        Spacer(Modifier.height(8.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .background(androidx.compose.ui.graphics.Color(currentColor))
+        )
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = hexText,
+            onValueChange = { hexText = it },
+            label = { Text(stringResource(R.string.color_hex_hint)) },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { state ->
+                    hexFocused = state.isFocused
+                    if (!state.isFocused) {
+                        try {
+                            applyColor(hexText.trim().toColorInt())
+                        } catch (_: Exception) {
+                            hexText = colorToHex(currentColor)
                         }
                     }
                 }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
+        )
+        Spacer(Modifier.height(8.dp))
 
-    private fun showStrokeDialog(
-        initialWidth: Float,
-        initialColor: Int,
-        onPreview: ((Float, Int) -> Unit)? = null,
-        onApply: (Float, Int) -> Unit
-    ) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_stroke, null)
-        val seekWidth  = dialogView.findViewById<SeekBar>(R.id.dialog_seek_stroke_width)
-        val labelWidth = dialogView.findViewById<TextView>(R.id.dialog_label_stroke_width)
-        val colorChip  = dialogView.findViewById<View>(R.id.dialog_stroke_color_chip)
+        ColorSliderRow("R", r) { r = it }
+        ColorSliderRow("G", g) { g = it }
+        ColorSliderRow("B", b) { b = it }
+        ColorSliderRow("A", a) { a = it }
 
-        seekWidth.progress = (initialWidth * 10).toInt().coerceIn(0, 200)
-        var currentStrokeColor = initialColor
-        colorChip.setBackgroundColor(currentStrokeColor)
-
-        val currentWidth = { seekWidth.progress / 10f }
-
-        fun updateLabel() { labelWidth.text = "%.1f dp".format(currentWidth()) }
-        updateLabel()
-        fun previewCurrent() = onPreview?.invoke(currentWidth(), currentStrokeColor)
-
-        seekWidth.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) { updateLabel(); previewCurrent() }
-            override fun onStartTrackingTouch(sb: SeekBar) = Unit
-            override fun onStopTrackingTouch(sb: SeekBar) = Unit
-        })
-
-        dialogView.findViewById<Button>(R.id.dialog_btn_stroke_color).setOnClickListener {
-            val colorAtOpen = currentStrokeColor
-            showColorDialog("Stroke color", colorAtOpen,
-                onPreview = { color -> currentStrokeColor = color; colorChip.setBackgroundColor(color); previewCurrent() }
-            ) { color -> currentStrokeColor = color; colorChip.setBackgroundColor(color); previewCurrent() }
+        Spacer(Modifier.height(16.dp))
+        Row(
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            TextButton(onClick = onBack) { Text("Cancel") }
+            TextButton(onClick = onConfirm) { Text("OK") }
         }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Text outline")
-            .setView(dialogView)
-            .setPositiveButton(android.R.string.ok) { _, _ -> onApply(currentWidth(), currentStrokeColor) }
-            .setNegativeButton(android.R.string.cancel) { _, _ -> onPreview?.invoke(initialWidth, initialColor) }
-            .show()
-    }
-
-    private fun showShadowDialog(
-        initialRadius: Float,
-        initialDx: Float,
-        initialDy: Float,
-        initialColor: Int,
-        onPreview: ((Float, Float, Float, Int) -> Unit)? = null,
-        onApply: (Float, Float, Float, Int) -> Unit
-    ) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_shadow, null)
-        val seekRadius  = dialogView.findViewById<SeekBar>(R.id.dialog_seek_radius)
-        val seekDx      = dialogView.findViewById<SeekBar>(R.id.dialog_seek_dx)
-        val seekDy      = dialogView.findViewById<SeekBar>(R.id.dialog_seek_dy)
-        val labelRadius = dialogView.findViewById<TextView>(R.id.dialog_label_radius)
-        val labelDx     = dialogView.findViewById<TextView>(R.id.dialog_label_dx)
-        val labelDy     = dialogView.findViewById<TextView>(R.id.dialog_label_dy)
-        val colorChip   = dialogView.findViewById<View>(R.id.dialog_shadow_color_chip)
-
-        seekRadius.progress = (initialRadius * 10).toInt().coerceIn(0, 200)
-        seekDx.progress     = ((initialDx + 10f) * 10).toInt().coerceIn(0, 200)
-        seekDy.progress     = ((initialDy + 10f) * 10).toInt().coerceIn(0, 200)
-
-        var currentShadowColor = initialColor
-        colorChip.setBackgroundColor(currentShadowColor)
-
-        val currentRadius = { seekRadius.progress / 10f }
-        val currentDxVal  = { (seekDx.progress  - 100) / 10f }
-        val currentDyVal  = { (seekDy.progress  - 100) / 10f }
-
-        fun updateLabels() {
-            labelRadius.text = "%.1f dp".format(currentRadius())
-            labelDx.text     = "%.1f dp".format(currentDxVal())
-            labelDy.text     = "%.1f dp".format(currentDyVal())
-        }
-        updateLabels()
-
-        fun previewCurrent() =
-            onPreview?.invoke(currentRadius(), currentDxVal(), currentDyVal(), currentShadowColor)
-
-        val seekListener = object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                updateLabels()
-                previewCurrent()
-            }
-            override fun onStartTrackingTouch(sb: SeekBar) = Unit
-            override fun onStopTrackingTouch(sb: SeekBar) = Unit
-        }
-        seekRadius.setOnSeekBarChangeListener(seekListener)
-        seekDx.setOnSeekBarChangeListener(seekListener)
-        seekDy.setOnSeekBarChangeListener(seekListener)
-
-        dialogView.findViewById<Button>(R.id.dialog_btn_shadow_color).setOnClickListener {
-            val colorAtOpen = currentShadowColor
-            showColorDialog("Shadow color", colorAtOpen,
-                onPreview = { color ->
-                    currentShadowColor = color
-                    colorChip.setBackgroundColor(color)
-                    previewCurrent()
-                }
-            ) { color ->
-                currentShadowColor = color
-                colorChip.setBackgroundColor(color)
-                previewCurrent()
-            }
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Text shadow")
-            .setView(dialogView)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                onApply(currentRadius(), currentDxVal(), currentDyVal(), currentShadowColor)
-            }
-            .setNegativeButton(android.R.string.cancel) { _, _ ->
-                onPreview?.invoke(initialRadius, initialDx, initialDy, initialColor)
-            }
-            .show()
-    }
-
-    private fun escape(s: String) = s.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
-    private fun unescape(s: String) = s.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
-
-    private fun showError(message: String) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Invalid input")
-            .setMessage(message)
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
     }
 }
+
+@Composable
+private fun ColorSliderRow(label: String, value: Int, onValueChange: (Int) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(label, modifier = Modifier.width(20.dp))
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValueChange(it.toInt()) },
+            valueRange = 0f..255f,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            "$value",
+            modifier = Modifier.width(36.dp),
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
+private fun ThemeSwatches(onPick: (Int) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val colors = listOf(
+        cs.primary, cs.onPrimary,
+        cs.primaryContainer, cs.onPrimaryContainer,
+        cs.secondary, cs.onSecondary,
+        cs.tertiary, cs.onTertiary,
+        cs.surface, cs.onSurface,
+        cs.surfaceVariant, cs.onSurfaceVariant,
+        cs.error, cs.outline
+    )
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        for (color in colors) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(color)
+                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), CircleShape)
+                    .clickable { onPick(color.toArgb()) }
+            )
+        }
+    }
+}
+
+// ── Text size dialog ─────────────────────────────────────────────────────────
+
+@Composable
+private fun TextSizeDialog(
+    initial: Float,
+    onPreview: (Float) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    var size by remember { mutableFloatStateOf(initial) }
+
+    LaunchedEffect(size) { onPreview(size) }
+
+    Dialog(onDismissRequest = { onPreview(initial); onDismiss() }) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text(
+                    stringResource(R.string.config_text_size_label),
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(
+                        value = size,
+                        onValueChange = { size = it },
+                        valueRange = 6f..400f,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${size.toInt()} sp",
+                        modifier = Modifier.width(64.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(onClick = { onPreview(initial); onDismiss() }) { Text("Cancel") }
+                    TextButton(onClick = onConfirm) { Text("OK") }
+                }
+            }
+        }
+    }
+}
+
+// ── Shadow dialog ────────────────────────────────────────────────────────────
+
+@Composable
+private fun ShadowDialog(
+    initialRadius: Float,
+    initialDx: Float,
+    initialDy: Float,
+    initialColor: Int,
+    onPreview: (Float, Float, Float, Int) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    // Slider progress: radius 0..200 -> 0..20.0, dx/dy 0..200 -> -10..10
+    var radiusProgress by remember { mutableFloatStateOf((initialRadius * 10).coerceIn(0f, 200f)) }
+    var dxProgress by remember { mutableFloatStateOf(((initialDx + 10f) * 10).coerceIn(0f, 200f)) }
+    var dyProgress by remember { mutableFloatStateOf(((initialDy + 10f) * 10).coerceIn(0f, 200f)) }
+    var color by remember { mutableIntStateOf(initialColor) }
+    var pickingColor by remember { mutableStateOf(false) }
+
+    val radius = radiusProgress / 10f
+    val dx = (dxProgress - 100) / 10f
+    val dy = (dyProgress - 100) / 10f
+
+    LaunchedEffect(radiusProgress, dxProgress, dyProgress, color) {
+        onPreview(radius, dx, dy, color)
+    }
+
+    Dialog(onDismissRequest = {
+        if (pickingColor) pickingColor = false
+        else { onPreview(initialRadius, initialDx, initialDy, initialColor); onDismiss() }
+    }) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            if (!pickingColor) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("Text shadow", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(16.dp))
+
+                    SliderRow("Blur", "%.1f dp".format(radius), radiusProgress, 0f, 200f) {
+                        radiusProgress = it
+                    }
+                    SliderRow("X offset", "%.1f dp".format(dx), dxProgress, 0f, 200f) {
+                        dxProgress = it
+                    }
+                    SliderRow("Y offset", "%.1f dp".format(dy), dyProgress, 0f, 200f) {
+                        dyProgress = it
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Color", modifier = Modifier.width(64.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(androidx.compose.ui.graphics.Color(color))
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = { pickingColor = true }) { Text("Pick\u2026") }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.End,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TextButton(onClick = {
+                            onPreview(initialRadius, initialDx, initialDy, initialColor)
+                            onDismiss()
+                        }) { Text("Cancel") }
+                        TextButton(onClick = onConfirm) { Text("OK") }
+                    }
+                }
+            } else {
+                ColorPickerContent(
+                    title = "Shadow color",
+                    initialColor = color,
+                    onColorChange = { c ->
+                        color = c
+                        onPreview(radius, dx, dy, c)
+                    },
+                    onBack = { pickingColor = false },
+                    onConfirm = { pickingColor = false }
+                )
+            }
+        }
+    }
+}
+
+// ── Stroke dialog ────────────────────────────────────────────────────────────
+
+@Composable
+private fun StrokeDialog(
+    initialWidth: Float,
+    initialColor: Int,
+    onPreview: (Float, Int) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    var widthProgress by remember { mutableFloatStateOf((initialWidth * 10).coerceIn(0f, 200f)) }
+    var color by remember { mutableIntStateOf(initialColor) }
+    var pickingColor by remember { mutableStateOf(false) }
+
+    val width = widthProgress / 10f
+
+    LaunchedEffect(widthProgress, color) { onPreview(width, color) }
+
+    Dialog(onDismissRequest = {
+        if (pickingColor) pickingColor = false
+        else { onPreview(initialWidth, initialColor); onDismiss() }
+    }) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            if (!pickingColor) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("Text outline", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(16.dp))
+
+                    SliderRow("Width", "%.1f dp".format(width), widthProgress, 0f, 200f) {
+                        widthProgress = it
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Color", modifier = Modifier.width(64.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(androidx.compose.ui.graphics.Color(color))
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = { pickingColor = true }) { Text("Pick\u2026") }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.End,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TextButton(onClick = { onPreview(initialWidth, initialColor); onDismiss() }) {
+                            Text("Cancel")
+                        }
+                        TextButton(onClick = onConfirm) { Text("OK") }
+                    }
+                }
+            } else {
+                ColorPickerContent(
+                    title = "Stroke color",
+                    initialColor = color,
+                    onColorChange = { c ->
+                        color = c
+                        onPreview(width, c)
+                    },
+                    onBack = { pickingColor = false },
+                    onConfirm = { pickingColor = false }
+                )
+            }
+        }
+    }
+}
+
+// ── Shared slider row ────────────────────────────────────────────────────────
+
+@Composable
+private fun SliderRow(
+    label: String,
+    valueText: String,
+    value: Float,
+    min: Float,
+    max: Float,
+    onValueChange: (Float) -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(label, modifier = Modifier.width(64.dp), style = MaterialTheme.typography.bodyMedium)
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = min..max,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            valueText,
+            modifier = Modifier.width(56.dp),
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+// ── Font dialog ──────────────────────────────────────────────────────────────
+
+private data class FontEntry(val family: String, val category: String, val subsets: List<String>)
+
+@Composable
+private fun FontDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    val builtInFamilies = listOf("sans-serif", "serif", "monospace", "cursive")
+    val builtInLabels = listOf("Sans-serif", "Serif", "Monospace", "Cursive")
+    var selectedFont by remember { mutableStateOf(initial) }
+    val isBuiltIn = selectedFont in builtInFamilies
+    // Start on Google picker if the current font is already a Google font
+    var showGooglePicker by remember { mutableStateOf(!isBuiltIn) }
+
+    // Single Dialog — swap content inside to avoid dismiss-on-recomposition.
+    // Immediately show Google picker if the current font is already a Google font.
+    Dialog(onDismissRequest = {
+        if (showGooglePicker) showGooglePicker = false else onDismiss()
+    }) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            if (!showGooglePicker) {
+                // Built-in font list
+                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                    Text(
+                        "Font family",
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                    )
+                    builtInFamilies.forEachIndexed { index, family ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onConfirm(family) }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = selectedFont == family,
+                                onClick = { onConfirm(family) }
+                            )
+                            Text(builtInLabels[index])
+                        }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showGooglePicker = true }
+                            .padding(horizontal = 8.dp)
+                    ) {
+                        RadioButton(
+                            selected = !isBuiltIn,
+                            onClick = { showGooglePicker = true }
+                        )
+                        Text("Google Font\u2026")
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.End,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        TextButton(onClick = onDismiss) { Text("Cancel") }
+                    }
+                }
+            } else {
+                // Google Font picker
+                GoogleFontPickerContent(
+                    initial = if (isBuiltIn) initial else selectedFont,
+                    onBack = { showGooglePicker = false },
+                    onConfirm = onConfirm
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoogleFontPickerContent(
+    initial: String,
+    onBack: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val allFonts = remember {
+        try {
+            val json = context.assets.open("google_fonts.json").bufferedReader().readText()
+            val items = JSONObject(json).getJSONArray("items")
+            (0 until items.length()).map { i ->
+                val obj = items.getJSONObject(i)
+                val subsetsArr = obj.getJSONArray("subsets")
+                FontEntry(
+                    obj.getString("family"),
+                    obj.getString("category"),
+                    (0 until subsetsArr.length()).map { j -> subsetsArr.getString(j) }
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    val categories = remember { allFonts.map { it.category }.distinct().sorted() }
+    val subsets = remember { allFonts.flatMap { it.subsets }.distinct().sorted() }
+
+    var query by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var selectedSubset by remember { mutableStateOf<String?>(null) }
+    var selectedFont by remember { mutableStateOf(initial) }
+    var subsetText by remember { mutableStateOf("") }
+
+    val filteredSubsets = remember(subsetText) {
+        if (subsetText.isEmpty()) subsets
+        else subsets.filter { it.contains(subsetText, ignoreCase = true) }
+    }
+    val filtered = remember(query, selectedCategory, selectedSubset) {
+        allFonts.filter { font ->
+            (selectedCategory == null || font.category == selectedCategory) &&
+                    (selectedSubset == null || selectedSubset in font.subsets) &&
+                    (query.isEmpty() || font.family.lowercase().contains(query.lowercase()))
+        }.map { it.family }
+    }
+
+    Column(modifier = Modifier.padding(vertical = 16.dp)) {
+        Text(
+            "Google Font",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text("Search") },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = selectedCategory == null,
+                    onClick = { selectedCategory = null },
+                    label = { Text("All") }
+                )
+            }
+            items(categories) { cat ->
+                FilterChip(
+                    selected = selectedCategory == cat,
+                    onClick = {
+                        selectedCategory = if (selectedCategory == cat) null else cat
+                    },
+                    label = { Text(cat.replaceFirstChar { it.uppercase() }) }
+                )
+            }
+        }
+        OutlinedTextField(
+            value = subsetText,
+            onValueChange = { subsetText = it; selectedSubset = null },
+            label = { Text("Subset") },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+        LazyColumn(modifier = Modifier.height(120.dp)) {
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { selectedSubset = null; subsetText = "" }
+                        .padding(horizontal = 8.dp)
+                ) {
+                    RadioButton(
+                        selected = selectedSubset == null,
+                        onClick = { selectedSubset = null; subsetText = "" }
+                    )
+                    Text("All")
+                }
+            }
+            items(filteredSubsets) { subset ->
+                val label = subset.split("-")
+                    .joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { selectedSubset = subset; subsetText = label }
+                        .padding(horizontal = 8.dp)
+                ) {
+                    RadioButton(
+                        selected = selectedSubset == subset,
+                        onClick = { selectedSubset = subset; subsetText = label }
+                    )
+                    Text(label)
+                }
+            }
+        }
+        HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
+        LazyColumn(modifier = Modifier.height(260.dp)) {
+            items(filtered, key = { it }) { family ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { selectedFont = family }
+                        .padding(horizontal = 8.dp)
+                ) {
+                    RadioButton(
+                        selected = family == selectedFont,
+                        onClick = { selectedFont = family }
+                    )
+                    Text(family)
+                }
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            TextButton(onClick = onBack) { Text("Cancel") }
+            TextButton(onClick = { onConfirm(selectedFont) }) { Text("OK") }
+        }
+    }
+}
+
+// ── Error dialog ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun ErrorDialog(message: String, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Invalid input") },
+        text = { Text(message) },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } }
+    )
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+private fun escape(s: String) = s.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
+private fun unescape(s: String) = s.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
+
+private fun colorToHex(color: Int) = String.format(
+    "#%02X%02X%02X%02X",
+    Color.alpha(color), Color.red(color), Color.green(color), Color.blue(color)
+)

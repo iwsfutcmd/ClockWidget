@@ -39,14 +39,6 @@ class ClockPrefs(private val context: Context, private val widgetId: Int) {
         get() = prefs.getString("font_family", "sans-serif") ?: "sans-serif"
         set(value) = prefs.edit().putString("font_family", value).apply()
 
-    var useBitmapRendering: Boolean
-        get() = prefs.getBoolean("use_bitmap_rendering", false)
-        set(value) = prefs.edit().putBoolean("use_bitmap_rendering", value).apply()
-
-    var useComposeRendering: Boolean
-        get() = prefs.getBoolean("use_compose_rendering", false)
-        set(value) = prefs.edit().putBoolean("use_compose_rendering", value).apply()
-
     var shadowRadius: Float
         get() = prefs.getFloat("shadow_radius", 0f)
         set(value) = prefs.edit().putFloat("shadow_radius", value).apply()

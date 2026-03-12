@@ -1,6 +1,5 @@
 package dev.iwsfutcmd.clockwidget
 
-import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -11,7 +10,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.icu.text.SimpleDateFormat
 import android.icu.util.ULocale
 import android.os.Handler
@@ -26,9 +24,7 @@ class ClockUpdateService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
-            if (isLauncherForeground()) {
-                ClockWidget.updateAll(this@ClockUpdateService)
-            }
+            ClockWidget.updateAll(this@ClockUpdateService)
             handler.postDelayed(this, nextDelay())
         }
     }
@@ -79,19 +75,6 @@ class ClockUpdateService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    private fun isLauncherForeground(): Boolean {
-        val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
-        @Suppress("DEPRECATION")
-        val topPackage = am.getRunningTasks(1).firstOrNull()?.topActivity?.packageName
-            ?: return true // can't determine — assume visible
-        val launcherPackage = packageManager
-            .resolveActivity(
-                Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) },
-                PackageManager.MATCH_DEFAULT_ONLY
-            )?.activityInfo?.packageName
-        return topPackage == launcherPackage
-    }
 
     private enum class Granularity { SECOND, MINUTE, HOUR, DAY }
 

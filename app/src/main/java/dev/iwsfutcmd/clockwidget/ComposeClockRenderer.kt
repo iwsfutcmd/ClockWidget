@@ -3,9 +3,6 @@ package dev.iwsfutcmd.clockwidget
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
-import android.graphics.Typeface
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import kotlinx.coroutines.CoroutineExceptionHandler
 import androidx.compose.ui.geometry.Offset
@@ -32,8 +29,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
-import androidx.core.provider.FontRequest
-import androidx.core.provider.FontsContractCompat
 
 private const val TAG = "ComposeClockRenderer"
 
@@ -76,39 +71,6 @@ object ComposeClockRenderer {
             providerPackage = "com.google.android.gms",
             certificates = certResId
         ).also { cachedProvider = it }
-    }
-
-    /** Validates a Google Font name via FontsContractCompat and reports result via [onResult].
-     *  [onResult] is called on the main thread with null on success, or an error string on failure. */
-    fun validateGoogleFont(context: Context, name: String, onResult: (error: String?) -> Unit) {
-        val certResId = getCertResId(context)
-        if (certResId == 0) {
-            onResult("Google Fonts certificate resource not found")
-            return
-        }
-        val request = FontRequest(
-            "com.google.android.gms.fonts",
-            "com.google.android.gms",
-            name,
-            certResId
-        )
-        FontsContractCompat.requestFont(
-            context.applicationContext,
-            request,
-            object : FontsContractCompat.FontRequestCallback() {
-                override fun onTypefaceRetrieved(typeface: Typeface) = onResult(null)
-                override fun onTypefaceRequestFailed(reason: Int) = onResult(
-                    when (reason) {
-                        FAIL_REASON_FONT_NOT_FOUND     -> "'$name' not found on Google Fonts"
-                        FAIL_REASON_FONT_LOAD_ERROR    -> "Failed to load '$name'"
-                        FAIL_REASON_PROVIDER_NOT_FOUND -> "Google Fonts provider not available (GMS missing?)"
-                        FAIL_REASON_WRONG_CERTIFICATES -> "Certificate mismatch — font request rejected"
-                        else                           -> "Font error (code $reason)"
-                    }
-                )
-            },
-            Handler(Looper.getMainLooper())
-        )
     }
 
     private val systemFamilies = mapOf(
