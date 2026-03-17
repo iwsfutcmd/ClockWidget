@@ -19,10 +19,6 @@ class ClockPrefs(private val context: Context, private val widgetId: Int) {
         get() = prefs.getString("locale_tag", null) ?: defaultLocaleTag()
         set(value) = prefs.edit().putString("locale_tag", value).apply()
 
-    var textSizeSp: Float
-        get() = prefs.getFloat("text_size_sp", 24f)
-        set(value) = prefs.edit().putFloat("text_size_sp", value).apply()
-
     var backgroundColor: Int
         get() = prefs.getInt("background_color", Color.argb(0xCC, 0x1E, 0x1E, 0x2E))
         set(value) = prefs.edit().putInt("background_color", value).apply()

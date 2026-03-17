@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.content.res.Configuration
 import android.icu.text.SimpleDateFormat
 import android.icu.util.ULocale
@@ -44,7 +45,7 @@ class ClockWidget : AppWidgetProvider() {
 
             val bitmap = ComposeClockRenderer.renderToBitmap(
                 context, text, widthPx, heightPx,
-                prefs.textSizeSp, prefs.backgroundColor, prefs.textColor,
+                prefs.backgroundColor, prefs.textColor,
                 prefs.fontFamily, prefs.textStyle,
                 prefs.shadowRadius, prefs.shadowDx, prefs.shadowDy, prefs.shadowColor,
                 prefs.strokeWidth, prefs.strokeColor
@@ -70,6 +71,15 @@ class ClockWidget : AppWidgetProvider() {
     ) {
         for (id in appWidgetIds) updateOne(context, appWidgetManager, id)
         startService(context)
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle
+    ) {
+        updateOne(context, appWidgetManager, appWidgetId)
     }
 
     override fun onEnabled(context: Context) = startService(context)

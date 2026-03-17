@@ -8,6 +8,8 @@ import android.graphics.Color
 import androidx.core.graphics.toColorInt
 import android.graphics.Typeface
 import android.icu.text.DateTimePatternGenerator
+import android.icu.text.LocaleDisplayNames
+import android.icu.text.NumberingSystem
 import android.icu.text.SimpleDateFormat
 import android.icu.util.ULocale
 import android.os.Build
@@ -40,8 +42,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
@@ -144,7 +151,6 @@ private fun ConfigScreen(widgetId: Int) {
     var patternText by remember { mutableStateOf(escape(prefs.pattern)) }
     var bgColor by remember { mutableIntStateOf(prefs.backgroundColor) }
     var textColor by remember { mutableIntStateOf(prefs.textColor) }
-    var textSizeSp by remember { mutableFloatStateOf(prefs.textSizeSp) }
     var textStyle by remember { mutableIntStateOf(prefs.textStyle) }
     var fontFamily by remember { mutableStateOf(prefs.fontFamily) }
     var shadowRadius by remember { mutableFloatStateOf(prefs.shadowRadius) }
@@ -174,7 +180,7 @@ private fun ConfigScreen(widgetId: Int) {
     // Render bitmap whenever anything changes
     LaunchedEffect(
         tick, previewWidth, previewHeight,
-        currentPattern, currentLocale, textSizeSp, bgColor, textColor,
+        currentPattern, currentLocale, bgColor, textColor,
         textStyle, fontFamily, shadowRadius, shadowDx, shadowDy, shadowColor,
         strokeWidth, strokeColor
     ) {
@@ -184,7 +190,7 @@ private fun ConfigScreen(widgetId: Int) {
         } catch (_: Exception) { "\u2014" }
         bitmap = ComposeClockRenderer.renderToBitmap(
             context, text, previewWidth, previewHeight,
-            textSizeSp, bgColor, textColor, fontFamily, textStyle,
+            bgColor, textColor, fontFamily, textStyle,
             shadowRadius, shadowDx, shadowDy, shadowColor,
             strokeWidth, strokeColor
         )
@@ -194,7 +200,6 @@ private fun ConfigScreen(widgetId: Int) {
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
         prefs.pattern = currentPattern
         prefs.localeTag = currentLocale
-        prefs.textSizeSp = textSizeSp
         prefs.backgroundColor = bgColor
         prefs.textColor = textColor
         prefs.textStyle = textStyle
@@ -305,6 +310,16 @@ private fun ConfigScreen(widgetId: Int) {
             )
             Spacer(Modifier.height(16.dp))
 
+            // ── Number System ───────────────────────────────────────────────
+            NumberSystemDropdown(
+                currentLocale = currentLocale,
+                onLocaleChange = { newTag ->
+                    currentLocale = newTag
+                    localeText = newTag
+                }
+            )
+            Spacer(Modifier.height(16.dp))
+
             // ── Skeleton ─────────────────────────────────────────────────────
             Text(
                 stringResource(R.string.config_skeleton_label),
@@ -381,7 +396,6 @@ private fun ConfigScreen(widgetId: Int) {
                 onItalicToggle = { italic ->
                     textStyle = (if (italic) textStyle or Typeface.ITALIC else textStyle and Typeface.ITALIC.inv())
                 },
-                onTextSize = { activeDialog = ActiveDialog.TextSize },
                 onTextColor = { activeDialog = ActiveDialog.Color(ColorTarget.TEXT) },
                 onBgColor = { activeDialog = ActiveDialog.Color(ColorTarget.BACKGROUND) },
                 onFont = { activeDialog = ActiveDialog.Font },
@@ -426,13 +440,6 @@ private fun ConfigScreen(widgetId: Int) {
             )
         }
 
-        ActiveDialog.TextSize -> TextSizeDialog(
-            initial = textSizeSp,
-            onPreview = { textSizeSp = it },
-            onDismiss = dismiss,
-            onConfirm = dismiss
-        )
-
         ActiveDialog.Shadow -> ShadowDialog(
             initialRadius = shadowRadius,
             initialDx = shadowDx,
@@ -476,11 +483,103 @@ private enum class ColorTarget { TEXT, BACKGROUND, SHADOW, STROKE }
 private sealed interface ActiveDialog {
     data object None : ActiveDialog
     data class Color(val target: ColorTarget) : ActiveDialog
-    data object TextSize : ActiveDialog
     data object Shadow : ActiveDialog
     data object Stroke : ActiveDialog
     data object Font : ActiveDialog
     data class Error(val message: String) : ActiveDialog
+}
+
+// ── Number system dropdown ───────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NumberSystemDropdown(
+    currentLocale: String,
+    onLocaleChange: (String) -> Unit
+) {
+    val uLocale = remember(currentLocale) { ULocale.forLanguageTag(currentLocale) }
+
+    val aliases = listOf("native", "traditio", "finance")
+
+    // CLDR uses long-form names for display lookups; BCP 47 truncates to 8 chars
+    val displayAliases = mapOf("traditio" to "traditional")
+
+    val displayNames = remember {
+        val ldn = LocaleDisplayNames.getInstance(ULocale.getDefault())
+        (NumberingSystem.getAvailableNames().toList() + aliases)
+            .associateWith { ldn.keyValueDisplayName("numbers", displayAliases[it] ?: it) }
+    }
+
+    val pinnedIds = listOf("native", "traditio")
+    val nuIds = remember {
+        pinnedIds + displayNames.entries
+            .filter { it.key !in pinnedIds }
+            .sortedBy { it.value.lowercase() }
+            .map { it.key }
+    }
+
+    val currentNu = remember(currentLocale) {
+        uLocale.getUnicodeLocaleType("nu")
+    }
+
+    val selectedLabel = remember(currentNu, displayNames) {
+        if (currentNu == null) "Default"
+        else displayNames[currentNu] ?: currentNu
+    }
+
+    var expanded by remember { mutableStateOf(false) }
+
+    Text(
+        stringResource(R.string.config_number_system_label),
+        style = MaterialTheme.typography.labelLarge
+    )
+    Spacer(Modifier.height(4.dp))
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it }
+    ) {
+        OutlinedTextField(
+            value = selectedLabel,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Default") },
+                onClick = {
+                    expanded = false
+                    val newLocale = ULocale.Builder()
+                        .setLocale(uLocale)
+                        .setUnicodeLocaleKeyword("nu", null)
+                        .build()
+                    onLocaleChange(newLocale.toLanguageTag())
+                },
+                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+            )
+            nuIds.forEach { id ->
+                DropdownMenuItem(
+                    text = { Text(displayNames[id] ?: id) },
+                    onClick = {
+                        expanded = false
+                        val newLocale = ULocale.Builder()
+                            .setLocale(uLocale)
+                            .setUnicodeLocaleKeyword("nu", id)
+                            .build()
+                        onLocaleChange(newLocale.toLanguageTag())
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                )
+            }
+        }
+    }
 }
 
 // ── Style toolbar ────────────────────────────────────────────────────────────
@@ -490,7 +589,6 @@ private fun StyleToolbar(
     textStyle: Int,
     onBoldToggle: (Boolean) -> Unit,
     onItalicToggle: (Boolean) -> Unit,
-    onTextSize: () -> Unit,
     onTextColor: () -> Unit,
     onBgColor: () -> Unit,
     onFont: () -> Unit,
@@ -514,9 +612,6 @@ private fun StyleToolbar(
             Icon(painterResource(R.drawable.ic_format_italic), contentDescription = "Italic")
         }
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = onTextSize) {
-            Icon(painterResource(R.drawable.ic_format_size), contentDescription = "Text size")
-        }
         IconButton(onClick = onTextColor) {
             Icon(painterResource(R.drawable.ic_format_color_text), contentDescription = "Text color")
         }
@@ -689,56 +784,6 @@ private fun ThemeSwatches(onPick: (Int) -> Unit) {
                     .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), CircleShape)
                     .clickable { onPick(color.toArgb()) }
             )
-        }
-    }
-}
-
-// ── Text size dialog ─────────────────────────────────────────────────────────
-
-@Composable
-private fun TextSizeDialog(
-    initial: Float,
-    onPreview: (Float) -> Unit,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    var size by remember { mutableFloatStateOf(initial) }
-
-    LaunchedEffect(size) { onPreview(size) }
-
-    Dialog(onDismissRequest = { onPreview(initial); onDismiss() }) {
-        Surface(
-            shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = 6.dp
-        ) {
-            Column(modifier = Modifier.padding(24.dp)) {
-                Text(
-                    stringResource(R.string.config_text_size_label),
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Slider(
-                        value = size,
-                        onValueChange = { size = it },
-                        valueRange = 6f..400f,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "${size.toInt()} sp",
-                        modifier = Modifier.width(64.dp),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    horizontalArrangement = Arrangement.End,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    TextButton(onClick = { onPreview(initial); onDismiss() }) { Text("Cancel") }
-                    TextButton(onClick = onConfirm) { Text("OK") }
-                }
-            }
         }
     }
 }

@@ -8,10 +8,10 @@
     <string name="config_skeleton_hint">e.g. GGGGyMMMMdEEEEhmsBBBBVVVV</string>
     <string name="config_pattern_label">ICU SimpleDateFormat Pattern</string>
     <string name="config_pattern_hint">e.g. EEE, MMM d\nhh:mm a</string>
-    <string name="config_text_size_label">Text Size</string>
     <string name="config_bg_color_label">Background Color (RGBA)</string>
     <string name="config_text_color_label">Text Color (RGBA)</string>
     <string name="color_hex_hint">#AARRGGBB</string>
+    <string name="config_number_system_label">Number System</string>
     <string name="set">Set</string>
     <string name="save">Save</string>
 </resources>
