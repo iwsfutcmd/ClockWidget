@@ -111,13 +111,48 @@ object ComposeClockRenderer {
         return lo
     }
 
+    private const val PADDING_FRACTION = 0.05f
+
+    private fun buildBaseStyle(
+        context: Context, fontFamily: String, textStyle: Int, textColor: Int, shadow: Shadow?
+    ): TextStyle {
+        val isBold   = textStyle and android.graphics.Typeface.BOLD   != 0
+        val isItalic = textStyle and android.graphics.Typeface.ITALIC != 0
+        return TextStyle(
+            color      = Color(textColor),
+            fontFamily = fontFamilyFor(context, fontFamily),
+            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+            fontStyle  = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+            textAlign  = TextAlign.Center,
+            shadow     = shadow
+        )
+    }
+
+    fun computeOptimalFontSize(
+        context: Context, text: String, width: Int, height: Int,
+        fontFamily: String, textStyle: Int,
+        strokeWidth: Float = 0f
+    ): Float {
+        val dm = context.resources.displayMetrics
+        val density = Density(context)
+        val textMeasurer = TextMeasurer(getFontResolver(context), density, LayoutDirection.Ltr)
+        val strokePx = strokeWidth * dm.density
+        val padX = width * PADDING_FRACTION
+        val padY = height * PADDING_FRACTION
+        val availableWidth = (width - strokePx - padX * 2).coerceAtLeast(1f)
+        val availableHeight = (height - strokePx - padY * 2).coerceAtLeast(1f)
+        val baseStyle = buildBaseStyle(context, fontFamily, textStyle, 0, null)
+        return findOptimalFontSize(textMeasurer, text, baseStyle, availableWidth, availableHeight)
+    }
+
     fun renderToBitmap(
         context: Context, text: String, width: Int, height: Int,
         bgColor: Int, textColor: Int,
         fontFamily: String, textStyle: Int,
         shadowRadius: Float = 0f, shadowDx: Float = 0f,
         shadowDy: Float = 0f, shadowColor: Int = 0,
-        strokeWidth: Float = 0f, strokeColor: Int = 0
+        strokeWidth: Float = 0f, strokeColor: Int = 0,
+        fontSize: Float = 0f
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val androidCanvas = AndroidCanvas(bitmap)
@@ -126,9 +161,6 @@ object ComposeClockRenderer {
         val density = Density(context)
         val textMeasurer = TextMeasurer(getFontResolver(context), density, LayoutDirection.Ltr)
 
-        val isBold   = textStyle and android.graphics.Typeface.BOLD   != 0
-        val isItalic = textStyle and android.graphics.Typeface.ITALIC != 0
-
         val shadow = if (shadowRadius > 0f) Shadow(
             color      = Color(shadowColor),
             offset     = Offset(shadowDx * dm.density, shadowDy * dm.density),
@@ -136,22 +168,16 @@ object ComposeClockRenderer {
         ) else null
 
         val strokePx = strokeWidth * dm.density
-        val availableWidth = (width - strokePx).coerceAtLeast(1f)
-        val availableHeight = (height - strokePx).coerceAtLeast(1f)
+        val baseStyle = buildBaseStyle(context, fontFamily, textStyle, textColor, shadow)
 
-        val baseStyle = TextStyle(
-            color      = Color(textColor),
-            fontFamily = fontFamilyFor(context, fontFamily),
-            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
-            fontStyle  = if (isItalic) FontStyle.Italic else FontStyle.Normal,
-            textAlign  = TextAlign.Center,
-            shadow     = shadow
-        )
-
-        val optimalSp = findOptimalFontSize(
-            textMeasurer, text, baseStyle, availableWidth, availableHeight
-        )
-        val sizedStyle = baseStyle.copy(fontSize = optimalSp.sp)
+        val spSize = if (fontSize > 0f) fontSize else {
+            val padX = width * PADDING_FRACTION
+            val padY = height * PADDING_FRACTION
+            val availableWidth = (width - strokePx - padX * 2).coerceAtLeast(1f)
+            val availableHeight = (height - strokePx - padY * 2).coerceAtLeast(1f)
+            findOptimalFontSize(textMeasurer, text, baseStyle, availableWidth, availableHeight)
+        }
+        val sizedStyle = baseStyle.copy(fontSize = spSize.sp)
 
         val constraints = Constraints.fixedWidth(width)
         val fillLayout = textMeasurer.measure(
@@ -177,7 +203,6 @@ object ComposeClockRenderer {
                     strokeLayout,
                     color     = Color(strokeColor),
                     drawStyle = Stroke(strokePx),
-                    shadow    = Shadow(Color.Transparent, Offset.Zero, 0f),
                     topLeft   = topLeft
                 )
             }

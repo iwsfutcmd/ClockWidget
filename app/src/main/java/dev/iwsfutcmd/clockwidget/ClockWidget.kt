@@ -48,7 +48,8 @@ class ClockWidget : AppWidgetProvider() {
                 prefs.backgroundColor, prefs.textColor,
                 prefs.fontFamily, prefs.textStyle,
                 prefs.shadowRadius, prefs.shadowDx, prefs.shadowDy, prefs.shadowColor,
-                prefs.strokeWidth, prefs.strokeColor
+                prefs.strokeWidth, prefs.strokeColor,
+                prefs.fontSize
             )
             val views = RemoteViews(context.packageName, R.layout.widget_clock_bitmap)
             views.setImageViewBitmap(R.id.clock_bitmap, bitmap)

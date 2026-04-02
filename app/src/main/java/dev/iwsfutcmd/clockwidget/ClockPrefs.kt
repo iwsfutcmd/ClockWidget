@@ -59,6 +59,10 @@ class ClockPrefs(private val context: Context, private val widgetId: Int) {
         get() = prefs.getInt("stroke_color", Color.BLACK)
         set(value) = prefs.edit().putInt("stroke_color", value).apply()
 
+    var fontSize: Float
+        get() = prefs.getFloat("font_size", 0f)
+        set(value) = prefs.edit().putFloat("font_size", value).apply()
+
     val skeleton: String
         get() = DateTimePatternGenerator
             .getInstance(ULocale.forLanguageTag(localeTag))

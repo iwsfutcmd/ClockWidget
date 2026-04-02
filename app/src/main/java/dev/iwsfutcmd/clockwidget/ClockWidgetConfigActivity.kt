@@ -11,6 +11,7 @@ import android.icu.text.DateTimePatternGenerator
 import android.icu.text.LocaleDisplayNames
 import android.icu.text.NumberingSystem
 import android.icu.text.SimpleDateFormat
+import android.icu.util.Calendar
 import android.icu.util.ULocale
 import android.os.Build
 import android.os.Bundle
@@ -42,13 +43,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
@@ -211,7 +207,29 @@ private fun ConfigScreen(widgetId: Int) {
         prefs.strokeWidth = strokeWidth
         prefs.strokeColor = strokeColor
 
+        // Compute optimal font size using actual widget dimensions
         val mgr = AppWidgetManager.getInstance(context)
+        val opts = mgr.getAppWidgetOptions(widgetId)
+        val dm = context.resources.displayMetrics
+        val isLandscape = context.resources.configuration.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val wDp = opts.getInt(
+            if (isLandscape) AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH
+            else AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 200
+        )
+        val hDp = opts.getInt(
+            if (isLandscape) AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT
+            else AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 100
+        )
+        val wPx = (wDp * dm.density).toInt().coerceAtLeast(1)
+        val hPx = (hDp * dm.density).toInt().coerceAtLeast(1)
+        val sampleText = try {
+            SimpleDateFormat(currentPattern, ULocale.forLanguageTag(currentLocale)).format(Date())
+        } catch (_: Exception) { "\u2014" }
+        prefs.fontSize = ComposeClockRenderer.computeOptimalFontSize(
+            context, sampleText, wPx, hPx, fontFamily, textStyle, strokeWidth
+        )
+
         ClockWidget.updateOne(context, mgr, widgetId)
         ClockWidget.startService(context)
     }
@@ -308,16 +326,26 @@ private fun ConfigScreen(widgetId: Int) {
                         }
                     }
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp))
 
-            // ── Number System ───────────────────────────────────────────────
-            NumberSystemDropdown(
-                currentLocale = currentLocale,
-                onLocaleChange = { newTag ->
-                    currentLocale = newTag
-                    localeText = newTag
+            // ── Locale toolbar ──────────────────────────────────────────────
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                IconButton(onClick = { activeDialog = ActiveDialog.Language }) {
+                    Icon(painterResource(R.drawable.translate_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Language")
                 }
-            )
+                IconButton(onClick = { activeDialog = ActiveDialog.Region }) {
+                    Icon(painterResource(R.drawable.language_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Region")
+                }
+                IconButton(onClick = { activeDialog = ActiveDialog.NumberSystem }) {
+                    Icon(painterResource(R.drawable.numbers_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Number system")
+                }
+                IconButton(onClick = { activeDialog = ActiveDialog.CalendarSystem }) {
+                    Icon(painterResource(R.drawable.calendar_clock_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Calendar")
+                }
+            }
             Spacer(Modifier.height(16.dp))
 
             // ── Skeleton ─────────────────────────────────────────────────────
@@ -469,6 +497,42 @@ private fun ConfigScreen(widgetId: Int) {
             }
         )
 
+        ActiveDialog.Language -> LanguageDialog(
+            currentLocale = currentLocale,
+            onLocaleChange = { newTag ->
+                currentLocale = newTag
+                localeText = newTag
+            },
+            onDismiss = dismiss
+        )
+
+        ActiveDialog.Region -> RegionDialog(
+            currentLocale = currentLocale,
+            onLocaleChange = { newTag ->
+                currentLocale = newTag
+                localeText = newTag
+            },
+            onDismiss = dismiss
+        )
+
+        ActiveDialog.NumberSystem -> NumberSystemDialog(
+            currentLocale = currentLocale,
+            onLocaleChange = { newTag ->
+                currentLocale = newTag
+                localeText = newTag
+            },
+            onDismiss = dismiss
+        )
+
+        ActiveDialog.CalendarSystem -> CalendarDialog(
+            currentLocale = currentLocale,
+            onLocaleChange = { newTag ->
+                currentLocale = newTag
+                localeText = newTag
+            },
+            onDismiss = dismiss
+        )
+
         is ActiveDialog.Error -> ErrorDialog(
             message = dialog.message,
             onDismiss = dismiss
@@ -486,22 +550,243 @@ private sealed interface ActiveDialog {
     data object Shadow : ActiveDialog
     data object Stroke : ActiveDialog
     data object Font : ActiveDialog
+    data object Language : ActiveDialog
+    data object Region : ActiveDialog
+    data object NumberSystem : ActiveDialog
+    data object CalendarSystem : ActiveDialog
     data class Error(val message: String) : ActiveDialog
 }
 
-// ── Number system dropdown ───────────────────────────────────────────────────
+// ── Language dialog ──────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NumberSystemDropdown(
+private fun LanguageDialog(
     currentLocale: String,
-    onLocaleChange: (String) -> Unit
+    onLocaleChange: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val uLocale = remember(currentLocale) { ULocale.forLanguageTag(currentLocale) }
+    val currentLang = remember(currentLocale) { uLocale.language }
+
+    val ldn = remember { LocaleDisplayNames.getInstance(ULocale.getDefault()) }
+    val languages = remember {
+        ULocale.getAvailableLocales()
+            .map { it.language }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .map { code -> code to ldn.languageDisplayName(code) }
+            .sortedBy { it.second.lowercase() }
+    }
+
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(query) {
+        if (query.isEmpty()) languages
+        else languages.filter { (code, displayName) ->
+            displayName.contains(query, ignoreCase = true) ||
+                    code.contains(query, ignoreCase = true)
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                Text(
+                    stringResource(R.string.config_language_label),
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                LazyColumn(modifier = Modifier.height(360.dp)) {
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newLocale = ULocale.Builder()
+                                        .setLocale(uLocale)
+                                        .setLanguage(ULocale.getDefault().language)
+                                        .build()
+                                    onLocaleChange(newLocale.toLanguageTag())
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = currentLang == ULocale.getDefault().language,
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Default")
+                        }
+                    }
+                    items(filtered, key = { it.first }) { (code, displayName) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newLocale = ULocale.Builder()
+                                        .setLocale(uLocale)
+                                        .setLanguage(code)
+                                        .build()
+                                    onLocaleChange(newLocale.toLanguageTag())
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = code == currentLang,
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(displayName)
+                        }
+                    }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
+            }
+        }
+    }
+}
+
+// ── Region dialog ───────────────────────────────────────────────────────────
+
+@Composable
+private fun RegionDialog(
+    currentLocale: String,
+    onLocaleChange: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val uLocale = remember(currentLocale) { ULocale.forLanguageTag(currentLocale) }
+    val currentRegion = remember(currentLocale) { uLocale.country }
+
+    val ldn = remember { LocaleDisplayNames.getInstance(ULocale.getDefault()) }
+    val regions = remember {
+        ULocale.getISOCountries()
+            .map { code -> code to ldn.regionDisplayName(code) }
+            .sortedBy { it.second.lowercase() }
+    }
+
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(query) {
+        if (query.isEmpty()) regions
+        else regions.filter { (code, displayName) ->
+            displayName.contains(query, ignoreCase = true) ||
+                    code.contains(query, ignoreCase = true)
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                Text(
+                    stringResource(R.string.config_region_label),
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                LazyColumn(modifier = Modifier.height(360.dp)) {
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newLocale = ULocale.Builder()
+                                        .setLocale(uLocale)
+                                        .setRegion("")
+                                        .build()
+                                    onLocaleChange(newLocale.toLanguageTag())
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = currentRegion.isEmpty(),
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("None")
+                        }
+                    }
+                    items(filtered, key = { it.first }) { (code, displayName) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newLocale = ULocale.Builder()
+                                        .setLocale(uLocale)
+                                        .setRegion(code)
+                                        .build()
+                                    onLocaleChange(newLocale.toLanguageTag())
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = code == currentRegion,
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(displayName)
+                        }
+                    }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
+            }
+        }
+    }
+}
+
+// ── Number system dialog ────────────────────────────────────────────────────
+
+@Composable
+private fun NumberSystemDialog(
+    currentLocale: String,
+    onLocaleChange: (String) -> Unit,
+    onDismiss: () -> Unit
 ) {
     val uLocale = remember(currentLocale) { ULocale.forLanguageTag(currentLocale) }
 
     val aliases = listOf("native", "traditio", "finance")
-
-    // CLDR uses long-form names for display lookups; BCP 47 truncates to 8 chars
     val displayAliases = mapOf("traditio" to "traditional")
 
     val displayNames = remember {
@@ -522,61 +807,204 @@ private fun NumberSystemDropdown(
         uLocale.getUnicodeLocaleType("nu")
     }
 
-    val selectedLabel = remember(currentNu, displayNames) {
-        if (currentNu == null) "Default"
-        else displayNames[currentNu] ?: currentNu
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(query) {
+        if (query.isEmpty()) nuIds
+        else nuIds.filter { id ->
+            val name = displayNames[id] ?: id
+            name.contains(query, ignoreCase = true) ||
+                    id.contains(query, ignoreCase = true)
+        }
     }
 
-    var expanded by remember { mutableStateOf(false) }
-
-    Text(
-        stringResource(R.string.config_number_system_label),
-        style = MaterialTheme.typography.labelLarge
-    )
-    Spacer(Modifier.height(4.dp))
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it }
-    ) {
-        OutlinedTextField(
-            value = selectedLabel,
-            onValueChange = {},
-            readOnly = true,
-            singleLine = true,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
         ) {
-            DropdownMenuItem(
-                text = { Text("Default") },
-                onClick = {
-                    expanded = false
-                    val newLocale = ULocale.Builder()
-                        .setLocale(uLocale)
-                        .setUnicodeLocaleKeyword("nu", null)
-                        .build()
-                    onLocaleChange(newLocale.toLanguageTag())
-                },
-                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
-            )
-            nuIds.forEach { id ->
-                DropdownMenuItem(
-                    text = { Text(displayNames[id] ?: id) },
-                    onClick = {
-                        expanded = false
-                        val newLocale = ULocale.Builder()
-                            .setLocale(uLocale)
-                            .setUnicodeLocaleKeyword("nu", id)
-                            .build()
-                        onLocaleChange(newLocale.toLanguageTag())
-                    },
-                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+            Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                Text(
+                    stringResource(R.string.config_number_system_label),
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
                 )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                LazyColumn(modifier = Modifier.height(360.dp)) {
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newLocale = ULocale.Builder()
+                                        .setLocale(uLocale)
+                                        .setUnicodeLocaleKeyword("nu", null)
+                                        .build()
+                                    onLocaleChange(newLocale.toLanguageTag())
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = currentNu == null,
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Default")
+                        }
+                    }
+                    items(filtered, key = { it }) { id ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newLocale = ULocale.Builder()
+                                        .setLocale(uLocale)
+                                        .setUnicodeLocaleKeyword("nu", id)
+                                        .build()
+                                    onLocaleChange(newLocale.toLanguageTag())
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = id == currentNu,
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(displayNames[id] ?: id)
+                        }
+                    }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
+            }
+        }
+    }
+}
+
+// ── Calendar dialog ─────────────────────────────────────────────────────────
+
+@Composable
+private fun CalendarDialog(
+    currentLocale: String,
+    onLocaleChange: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val uLocale = remember(currentLocale) { ULocale.forLanguageTag(currentLocale) }
+
+    val currentCa = remember(currentLocale) {
+        uLocale.getUnicodeLocaleType("ca")
+    }
+
+    val ldn = remember { LocaleDisplayNames.getInstance(ULocale.getDefault()) }
+    val calendarTypes = remember {
+        Calendar.getKeywordValuesForLocale("calendar", ULocale.getDefault(), false)
+            .toList()
+            .map { id -> id to ldn.keyValueDisplayName("calendar", id) }
+            .sortedBy { it.second.lowercase() }
+    }
+
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(query) {
+        if (query.isEmpty()) calendarTypes
+        else calendarTypes.filter { (id, displayName) ->
+            displayName.contains(query, ignoreCase = true) ||
+                    id.contains(query, ignoreCase = true)
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                Text(
+                    stringResource(R.string.config_calendar_label),
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                LazyColumn(modifier = Modifier.height(360.dp)) {
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newLocale = ULocale.Builder()
+                                        .setLocale(uLocale)
+                                        .setUnicodeLocaleKeyword("ca", null)
+                                        .build()
+                                    onLocaleChange(newLocale.toLanguageTag())
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = currentCa == null,
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Default")
+                        }
+                    }
+                    items(filtered, key = { it.first }) { (id, displayName) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newLocale = ULocale.Builder()
+                                        .setLocale(uLocale)
+                                        .setUnicodeLocaleKeyword("ca", id)
+                                        .build()
+                                    onLocaleChange(newLocale.toLanguageTag())
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = id == currentCa,
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(displayName)
+                        }
+                    }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
             }
         }
     }
@@ -603,29 +1031,29 @@ private fun StyleToolbar(
             checked = textStyle and Typeface.BOLD != 0,
             onCheckedChange = onBoldToggle
         ) {
-            Icon(painterResource(R.drawable.ic_format_bold), contentDescription = "Bold")
+            Icon(painterResource(R.drawable.format_bold_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Bold")
         }
         IconToggleButton(
             checked = textStyle and Typeface.ITALIC != 0,
             onCheckedChange = onItalicToggle
         ) {
-            Icon(painterResource(R.drawable.ic_format_italic), contentDescription = "Italic")
+            Icon(painterResource(R.drawable.format_italic_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Italic")
         }
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onTextColor) {
-            Icon(painterResource(R.drawable.ic_format_color_text), contentDescription = "Text color")
+            Icon(painterResource(R.drawable.format_color_text_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Text color")
         }
         IconButton(onClick = onBgColor) {
-            Icon(painterResource(R.drawable.ic_palette), contentDescription = "Background color")
+            Icon(painterResource(R.drawable.format_color_fill_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Background color")
         }
         IconButton(onClick = onFont) {
-            Icon(painterResource(R.drawable.ic_font_family), contentDescription = "Font family")
+            Icon(painterResource(R.drawable.brand_family_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Font family")
         }
         IconButton(onClick = onShadow) {
-            Icon(painterResource(R.drawable.ic_shadow), contentDescription = "Text shadow")
+            Icon(painterResource(R.drawable.shadow_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Text shadow")
         }
         IconButton(onClick = onStroke) {
-            Icon(painterResource(R.drawable.ic_stroke), contentDescription = "Text outline")
+            Icon(painterResource(R.drawable.border_color_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Text outline")
         }
     }
 }
