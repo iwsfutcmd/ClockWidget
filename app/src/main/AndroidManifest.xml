@@ -13,7 +13,7 @@
         android:theme="@style/Theme.ClockWidget">
 
         <receiver
-            android:name=".ClockWidget"
+            android:name=".GlanceClockWidgetReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>

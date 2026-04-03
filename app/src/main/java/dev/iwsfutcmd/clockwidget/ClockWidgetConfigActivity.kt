@@ -3,6 +3,8 @@ package dev.iwsfutcmd.clockwidget
 import android.app.WallpaperManager
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import kotlinx.coroutines.launch
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.core.graphics.toColorInt
@@ -230,8 +232,11 @@ private fun ConfigScreen(widgetId: Int) {
             context, sampleText, wPx, hPx, fontFamily, textStyle, strokeWidth
         )
 
-        ClockWidget.updateOne(context, mgr, widgetId)
-        ClockWidget.startService(context)
+        kotlinx.coroutines.MainScope().launch {
+            val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(widgetId)
+            GlanceClockWidget().update(context, glanceId)
+        }
+        GlanceClockWidgetReceiver.startService(context)
     }
 
     // ── Wallpaper color ──────────────────────────────────────────────────────

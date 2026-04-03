@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
                                     textAlign = TextAlign.Center
                                 )
                                 Button(onClick = {
-                                    val provider = ComponentName(this@MainActivity, ClockWidget::class.java)
+                                    val provider = ComponentName(this@MainActivity, GlanceClockWidgetReceiver::class.java)
                                     if (mgr.requestPinAppWidget(provider, null, null)) {
                                         finish()
                                     }

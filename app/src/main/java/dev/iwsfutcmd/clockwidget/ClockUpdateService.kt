@@ -16,15 +16,24 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import androidx.glance.appwidget.updateAll
+import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.Date
 
 class ClockUpdateService : Service() {
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
-            ClockWidget.updateAll(this@ClockUpdateService)
+            serviceScope.launch {
+                GlanceClockWidget().updateAll(this@ClockUpdateService)
+            }
             handler.postDelayed(this, nextDelay())
         }
     }
@@ -71,6 +80,7 @@ class ClockUpdateService : Service() {
     override fun onDestroy() {
         handler.removeCallbacks(tick)
         unregisterReceiver(screenReceiver)
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -90,7 +100,7 @@ class ClockUpdateService : Service() {
 
     private fun nextDelay(): Long {
         val ids = AppWidgetManager.getInstance(this)
-            .getAppWidgetIds(ComponentName(this, ClockWidget::class.java))
+            .getAppWidgetIds(ComponentName(this, GlanceClockWidgetReceiver::class.java))
         val finest = ids
             .map { skeletonGranularity(ClockPrefs(this, it).skeleton) }
             .minOrNull() ?: Granularity.SECOND
