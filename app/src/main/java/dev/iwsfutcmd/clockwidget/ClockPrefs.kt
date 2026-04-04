@@ -63,13 +63,29 @@ class ClockPrefs(private val context: Context, private val widgetId: Int) {
         get() = prefs.getFloat("font_size", 0f)
         set(value) = prefs.edit().putFloat("font_size", value).apply()
 
+    var fontSizeWidth: Int
+        get() = prefs.getInt("font_size_width", 0)
+        set(value) = prefs.edit().putInt("font_size_width", value).apply()
+
+    var fontSizeHeight: Int
+        get() = prefs.getInt("font_size_height", 0)
+        set(value) = prefs.edit().putInt("font_size_height", value).apply()
+
     var textDirection: String
         get() = prefs.getString("text_direction", "ltr") ?: "ltr"
         set(value) = prefs.edit().putString("text_direction", value).apply()
 
     var padding: Float
-        get() = prefs.getFloat("padding", 0f)
+        get() = prefs.getFloat("padding", 0.05f)
         set(value) = prefs.edit().putFloat("padding", value).apply()
+
+    var letterSpacing: Float
+        get() = prefs.getFloat("letter_spacing", 0f)
+        set(value) = prefs.edit().putFloat("letter_spacing", value).apply()
+
+    var lineHeight: Float
+        get() = prefs.getFloat("line_height", 0f)
+        set(value) = prefs.edit().putFloat("line_height", value).apply()
 
     val skeleton: String
         get() = DateTimePatternGenerator

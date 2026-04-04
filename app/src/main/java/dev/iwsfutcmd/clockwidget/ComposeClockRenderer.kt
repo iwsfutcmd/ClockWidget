@@ -31,13 +31,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
 private const val TAG = "ComposeClockRenderer"
 
 object ComposeClockRenderer {
 
-    private const val DEBUG_BOUNDS = true
+    private const val DEBUG_BOUNDS = false
 
     // Cached so that async Google Font loads persist between widget update ticks.
     // A fresh resolver every render would discard completed downloads.
@@ -119,17 +121,20 @@ object ComposeClockRenderer {
     private const val DEFAULT_PADDING_FRACTION = 0f
 
     private fun buildBaseStyle(
-        context: Context, fontFamily: String, textStyle: Int, textColor: Int, shadow: Shadow?
+        context: Context, fontFamily: String, textStyle: Int, textColor: Int, shadow: Shadow?,
+        letterSpacing: Float = 0f, lineHeight: Float = 0f
     ): TextStyle {
         val isBold   = textStyle and android.graphics.Typeface.BOLD   != 0
         val isItalic = textStyle and android.graphics.Typeface.ITALIC != 0
         return TextStyle(
-            color      = Color(textColor),
-            fontFamily = fontFamilyFor(context, fontFamily),
-            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
-            fontStyle  = if (isItalic) FontStyle.Italic else FontStyle.Normal,
-            textAlign  = TextAlign.Center,
-            shadow     = shadow
+            color        = Color(textColor),
+            fontFamily   = fontFamilyFor(context, fontFamily),
+            fontWeight   = if (isBold) FontWeight.Bold else FontWeight.Normal,
+            fontStyle    = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+            textAlign    = TextAlign.Center,
+            shadow       = shadow,
+            letterSpacing = if (letterSpacing != 0f) letterSpacing.em else TextUnit.Unspecified,
+            lineHeight    = if (lineHeight > 0f) lineHeight.em else TextUnit.Unspecified
         )
     }
 
@@ -182,59 +187,6 @@ object ComposeClockRenderer {
         return lo
     }
 
-    @androidx.annotation.RequiresApi(36)
-    private fun renderVerticalToTempBitmap(
-        text: String, width: Int, height: Int,
-        textColor: Int, fontFamily: String, textStyle: Int,
-        shadowRadius: Float, shadowDx: Float, shadowDy: Float, shadowColor: Int,
-        strokeWidth: Float, strokeColor: Int, density: Float,
-        paddingFraction: Float
-    ): Bitmap {
-        val strokePx = strokeWidth * density
-        val padX = width * paddingFraction
-        val padY = height * paddingFraction
-        val availW = (width - strokePx - padX * 2).coerceAtLeast(1f)
-        val availH = (height - strokePx - padY * 2).coerceAtLeast(1f)
-
-        val fillPaint = buildFillPaint(
-            fontFamily, textStyle, textColor, 1f,
-            shadowRadius, shadowDx, shadowDy, shadowColor, density
-        )
-        val optimalSize = findOptimalFontSizeVertical(text, fillPaint, availW, availH)
-        fillPaint.textSize = optimalSize
-        if (shadowRadius > 0f) {
-            fillPaint.setShadowLayer(shadowRadius * density, shadowDx * density, shadowDy * density, shadowColor)
-        }
-
-        val fillLayout = androidx.text.vertical.VerticalTextLayout(
-            text = text, paint = fillPaint, height = Float.MAX_VALUE
-        )
-
-        // Render to temp bitmap at origin
-        val tempBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = AndroidCanvas(tempBitmap)
-
-        // draw() origin is top-right; draw at top-right of bitmap
-        val drawX = fillLayout.width
-        val drawY = 0f
-
-        if (strokeWidth > 0f) {
-            val strokePaint = TextPaint(fillPaint).apply {
-                clearShadowLayer()
-                color = strokeColor
-                style = NativePaint.Style.STROKE
-                this.strokeWidth = strokePx
-            }
-            val strokeLayout = androidx.text.vertical.VerticalTextLayout(
-                text = text, paint = strokePaint, height = Float.MAX_VALUE
-            )
-            strokeLayout.draw(canvas, drawX, drawY)
-        }
-        fillLayout.draw(canvas, drawX, drawY)
-
-        return tempBitmap
-    }
-
     private fun findContentBounds(bitmap: Bitmap): android.graphics.Rect {
         val w = bitmap.width
         val h = bitmap.height
@@ -273,6 +225,45 @@ object ComposeClockRenderer {
         return findOptimalFontSize(textMeasurer, text, baseStyle, availableWidth, availableHeight)
     }
 
+    /**
+     * Computes a font size (in sp) whose actual ink bounds fill the available area.
+     * Call this once (e.g. when config closes) and save the result.
+     */
+    fun computeAdjustedFontSize(
+        context: Context, text: String, width: Int, height: Int,
+        fontFamily: String, textStyle: Int,
+        strokeWidth: Float = 0f, textDirection: String = "ltr",
+        paddingFraction: Float = DEFAULT_PADDING_FRACTION,
+        letterSpacing: Float = 0f, lineHeight: Float = 0f
+    ): Float {
+        val dmDensity = context.resources.displayMetrics.density
+        val strokePx = strokeWidth * dmDensity
+        val padX = width * paddingFraction
+        val padY = height * paddingFraction
+        val availW = (width - strokePx - padX * 2).coerceAtLeast(1f)
+        val availH = (height - strokePx - padY * 2).coerceAtLeast(1f)
+
+        // Render at layout-metrics size on oversized bitmap to get initial font size and ink bounds
+        val bigInitW = width * 3
+        val bigInitH = height * 3
+        val (initialBitmap, initialFontSize) = renderToTempBitmap(
+            context, text, width, height, 0xFFFFFFFF.toInt(), fontFamily, textStyle,
+            0f, 0f, 0f, 0,
+            strokeWidth, 0xFFFFFFFF.toInt(), 0f, textDirection, paddingFraction,
+            bitmapWidth = bigInitW, bitmapHeight = bigInitH,
+            letterSpacing = letterSpacing, lineHeight = lineHeight
+        )
+        val initialBounds = findContentBounds(initialBitmap)
+        initialBitmap.recycle()
+
+        // Scale so ink fills available area
+        val scale = if (initialBounds.width() > 0 && initialBounds.height() > 0) {
+            minOf(availW / initialBounds.width().toFloat(), availH / initialBounds.height().toFloat())
+        } else 1f
+
+        return initialFontSize * scale
+    }
+
     fun renderToBitmap(
         context: Context, text: String, width: Int, height: Int,
         bgColor: Int, textColor: Int,
@@ -282,45 +273,33 @@ object ComposeClockRenderer {
         strokeWidth: Float = 0f, strokeColor: Int = 0,
         fontSize: Float = 0f,
         textDirection: String = "ltr",
-        paddingFraction: Float = DEFAULT_PADDING_FRACTION
+        paddingFraction: Float = DEFAULT_PADDING_FRACTION,
+        letterSpacing: Float = 0f, lineHeight: Float = 0f
     ): Bitmap {
-        val isVertical = textDirection == "vertical" && isVerticalTextSupported()
+        val bigW = width * 3
+        val bigH = height * 3
 
-        val dmDensity = context.resources.displayMetrics.density
-
-        // Step 1: Render text WITHOUT shadow for measuring bounds
-        val measureBitmap = if (isVertical) {
-            renderVerticalToTempBitmap(
-                text, width, height, textColor, fontFamily, textStyle,
-                0f, 0f, 0f, 0,
-                strokeWidth, strokeColor, dmDensity, paddingFraction
-            )
-        } else {
-            renderHorizontalToTempBitmap(
-                context, text, width, height, textColor, fontFamily, textStyle,
-                0f, 0f, 0f, 0,
-                strokeWidth, strokeColor, fontSize, textDirection, paddingFraction
-            )
-        }
+        // Render (no shadow) on oversized bitmap for centering bounds
+        val (measureBitmap, _) = renderToTempBitmap(
+            context, text, width, height, textColor, fontFamily, textStyle,
+            0f, 0f, 0f, 0,
+            strokeWidth, strokeColor, fontSize, textDirection, 0f,
+            bitmapWidth = bigW, bitmapHeight = bigH,
+            letterSpacing = letterSpacing, lineHeight = lineHeight
+        )
         val bounds = findContentBounds(measureBitmap)
         measureBitmap.recycle()
 
-        // Step 2: Render text WITH shadow for the actual content
-        val tempBitmap = if (isVertical) {
-            renderVerticalToTempBitmap(
-                text, width, height, textColor, fontFamily, textStyle,
-                shadowRadius, shadowDx, shadowDy, shadowColor,
-                strokeWidth, strokeColor, dmDensity, paddingFraction
-            )
-        } else {
-            renderHorizontalToTempBitmap(
-                context, text, width, height, textColor, fontFamily, textStyle,
-                shadowRadius, shadowDx, shadowDy, shadowColor,
-                strokeWidth, strokeColor, fontSize, textDirection, paddingFraction
-            )
-        }
+        // Render (with shadow) on oversized bitmap for actual content
+        val (tempBitmap, _) = renderToTempBitmap(
+            context, text, width, height, textColor, fontFamily, textStyle,
+            shadowRadius, shadowDx, shadowDy, shadowColor,
+            strokeWidth, strokeColor, fontSize, textDirection, 0f,
+            bitmapWidth = bigW, bitmapHeight = bigH,
+            letterSpacing = letterSpacing, lineHeight = lineHeight
+        )
 
-        // Step 3: Compose final bitmap with background + centered text
+        // Compose final bitmap — center ink bounds in widget
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = AndroidCanvas(bitmap)
         canvas.drawColor(bgColor)
@@ -345,64 +324,112 @@ object ComposeClockRenderer {
         return bitmap
     }
 
-    private fun renderHorizontalToTempBitmap(
+    /** Returns (bitmap, fontSizeUsed) */
+    private fun renderToTempBitmap(
         context: Context, text: String, width: Int, height: Int,
         textColor: Int, fontFamily: String, textStyle: Int,
         shadowRadius: Float, shadowDx: Float, shadowDy: Float, shadowColor: Int,
         strokeWidth: Float, strokeColor: Int,
         fontSize: Float, textDirection: String,
-        paddingFraction: Float
-    ): Bitmap {
+        paddingFraction: Float,
+        bitmapWidth: Int = width, bitmapHeight: Int = height,
+        letterSpacing: Float = 0f, lineHeight: Float = 0f
+    ): Pair<Bitmap, Float> {
         val dm = context.resources.displayMetrics
-        val density = Density(context)
-        val layoutDir = if (textDirection == "rtl") LayoutDirection.Rtl else LayoutDirection.Ltr
-        val textMeasurer = TextMeasurer(getFontResolver(context), density, layoutDir)
+        val dmDensity = dm.density
+        val strokePx = strokeWidth * dmDensity
+        val padX = width * paddingFraction
+        val padY = height * paddingFraction
+        val availW = (width - strokePx - padX * 2).coerceAtLeast(1f)
+        val availH = (height - strokePx - padY * 2).coerceAtLeast(1f)
 
-        val shadow = if (shadowRadius > 0f) Shadow(
-            color      = Color(shadowColor),
-            offset     = Offset(shadowDx * dm.density, shadowDy * dm.density),
-            blurRadius = shadowRadius * dm.density
-        ) else null
+        val isVertical = textDirection == "vertical" && isVerticalTextSupported()
 
-        val strokePx = strokeWidth * dm.density
-        val baseStyle = buildBaseStyle(context, fontFamily, textStyle, textColor, shadow)
+        val tempBitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+        val canvas = AndroidCanvas(tempBitmap)
 
-        val spSize = if (fontSize > 0f) fontSize else {
-            val padX = width * paddingFraction
-            val padY = height * paddingFraction
-            val availableWidth = (width - strokePx - padX * 2).coerceAtLeast(1f)
-            val availableHeight = (height - strokePx - padY * 2).coerceAtLeast(1f)
-            findOptimalFontSize(textMeasurer, text, baseStyle, availableWidth, availableHeight)
-        }
-        val sizedStyle = baseStyle.copy(fontSize = spSize.sp)
+        if (isVertical) {
+            // Native TextPaint + VerticalTextLayout (API 36+)
+            val fillPaint = buildFillPaint(
+                fontFamily, textStyle, textColor, 1f,
+                shadowRadius, shadowDx, shadowDy, shadowColor, dmDensity
+            )
+            if (letterSpacing != 0f) fillPaint.letterSpacing = letterSpacing
+            val optimalSize = if (fontSize > 0f) fontSize
+                else findOptimalFontSizeVertical(text, fillPaint, availW, availH)
+            fillPaint.textSize = optimalSize
+            if (shadowRadius > 0f) {
+                fillPaint.setShadowLayer(
+                    shadowRadius * dmDensity, shadowDx * dmDensity,
+                    shadowDy * dmDensity, shadowColor
+                )
+            }
 
-        val tempBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val androidCanvas = AndroidCanvas(tempBitmap)
+            val fillLayout = androidx.text.vertical.VerticalTextLayout(
+                text = text, paint = fillPaint, height = Float.MAX_VALUE
+            )
+            val drawX = fillLayout.width + strokePx / 2f
+            val drawY = strokePx / 2f
 
-        CanvasDrawScope().draw(
-            density, layoutDir,
-            Canvas(androidCanvas),
-            Size(width.toFloat(), height.toFloat())
-        ) {
             if (strokeWidth > 0f) {
-                val strokeLayout = textMeasurer.measure(
+                val strokePaint = TextPaint(fillPaint).apply {
+                    clearShadowLayer()
+                    color = strokeColor
+                    style = NativePaint.Style.STROKE
+                    this.strokeWidth = strokePx
+                }
+                val strokeLayout = androidx.text.vertical.VerticalTextLayout(
+                    text = text, paint = strokePaint, height = Float.MAX_VALUE
+                )
+                strokeLayout.draw(canvas, drawX, drawY)
+            }
+            fillLayout.draw(canvas, drawX, drawY)
+
+            return tempBitmap to optimalSize
+        } else {
+            // Compose TextMeasurer + CanvasDrawScope
+            val density = Density(context)
+            val layoutDir = if (textDirection == "rtl") LayoutDirection.Rtl else LayoutDirection.Ltr
+            val textMeasurer = TextMeasurer(getFontResolver(context), density, layoutDir)
+
+            val shadow = if (shadowRadius > 0f) Shadow(
+                color      = Color(shadowColor),
+                offset     = Offset(shadowDx * dmDensity, shadowDy * dmDensity),
+                blurRadius = shadowRadius * dmDensity
+            ) else null
+
+            val baseStyle = buildBaseStyle(context, fontFamily, textStyle, textColor, shadow,
+                letterSpacing = letterSpacing, lineHeight = lineHeight)
+            val spSize = if (fontSize > 0f) fontSize
+                else findOptimalFontSize(textMeasurer, text, baseStyle, availW, availH)
+            val sizedStyle = baseStyle.copy(fontSize = spSize.sp)
+
+            CanvasDrawScope().draw(
+                density, layoutDir, Canvas(canvas),
+                Size(bitmapWidth.toFloat(), bitmapHeight.toFloat())
+            ) {
+                if (strokeWidth > 0f) {
+                    val strokeLayout = textMeasurer.measure(
+                        text, sizedStyle, softWrap = false,
+                        overflow = TextOverflow.Clip, constraints = Constraints()
+                    )
+                    val strokeOffset = Offset(strokePx / 2f, strokePx / 2f)
+                    drawText(
+                        strokeLayout,
+                        color     = Color(strokeColor),
+                        drawStyle = Stroke(strokePx),
+                        topLeft   = strokeOffset
+                    )
+                }
+                val fillOffset = Offset(strokePx / 2f, strokePx / 2f)
+                val fillLayout = textMeasurer.measure(
                     text, sizedStyle, softWrap = false,
                     overflow = TextOverflow.Clip, constraints = Constraints()
                 )
-                drawText(
-                    strokeLayout,
-                    color     = Color(strokeColor),
-                    drawStyle = Stroke(strokePx),
-                    topLeft   = Offset.Zero
-                )
+                drawText(fillLayout, color = Color(textColor), drawStyle = Fill, topLeft = fillOffset)
             }
-            val fillLayout = textMeasurer.measure(
-                text, sizedStyle, softWrap = false,
-                overflow = TextOverflow.Clip, constraints = Constraints()
-            )
-            drawText(fillLayout, color = Color(textColor), drawStyle = Fill, topLeft = Offset.Zero)
-        }
 
-        return tempBitmap
+            return tempBitmap to spSize
+        }
     }
 }

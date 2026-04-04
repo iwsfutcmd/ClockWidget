@@ -159,6 +159,8 @@ private fun ConfigScreen(widgetId: Int) {
     var strokeColor by remember { mutableIntStateOf(prefs.strokeColor) }
     var textDirection by remember { mutableStateOf(prefs.textDirection) }
     var padding by remember { mutableFloatStateOf(prefs.padding) }
+    var letterSpacing by remember { mutableFloatStateOf(prefs.letterSpacing) }
+    var lineHeight by remember { mutableFloatStateOf(prefs.lineHeight) }
 
     // ── Dialog visibility ────────────────────────────────────────────────────
     var activeDialog by remember { mutableStateOf<ActiveDialog>(ActiveDialog.None) }
@@ -182,7 +184,7 @@ private fun ConfigScreen(widgetId: Int) {
         tick, previewWidth, previewHeight,
         currentPattern, currentLocale, bgColor, textColor,
         textStyle, fontFamily, shadowRadius, shadowDx, shadowDy, shadowColor,
-        strokeWidth, strokeColor, textDirection, padding
+        strokeWidth, strokeColor, textDirection, padding, letterSpacing, lineHeight
     ) {
         if (previewWidth <= 0 || previewHeight <= 0) return@LaunchedEffect
         val text = try {
@@ -194,7 +196,9 @@ private fun ConfigScreen(widgetId: Int) {
             shadowRadius, shadowDx, shadowDy, shadowColor,
             strokeWidth, strokeColor,
             textDirection = textDirection,
-            paddingFraction = padding
+            paddingFraction = padding,
+            letterSpacing = letterSpacing,
+            lineHeight = lineHeight
         )
     }
 
@@ -214,6 +218,8 @@ private fun ConfigScreen(widgetId: Int) {
         prefs.strokeColor = strokeColor
         prefs.textDirection = textDirection
         prefs.padding = padding
+        prefs.letterSpacing = letterSpacing
+        prefs.lineHeight = lineHeight
 
         // Compute optimal font size using actual widget dimensions
         val mgr = AppWidgetManager.getInstance(context)
@@ -234,9 +240,13 @@ private fun ConfigScreen(widgetId: Int) {
         val sampleText = try {
             SimpleDateFormat(currentPattern, ULocale.forLanguageTag(currentLocale)).format(Date())
         } catch (_: Exception) { "\u2014" }
-        prefs.fontSize = ComposeClockRenderer.computeOptimalFontSize(
-            context, sampleText, wPx, hPx, fontFamily, textStyle, strokeWidth
+        prefs.fontSize = ComposeClockRenderer.computeAdjustedFontSize(
+            context, sampleText, wPx, hPx, fontFamily, textStyle,
+            strokeWidth, textDirection, padding,
+            letterSpacing, lineHeight
         )
+        prefs.fontSizeWidth = wPx
+        prefs.fontSizeHeight = hPx
 
         kotlinx.coroutines.MainScope().launch {
             val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(widgetId)
@@ -441,6 +451,8 @@ private fun ConfigScreen(widgetId: Int) {
                 onShadow = { activeDialog = ActiveDialog.Shadow },
                 onStroke = { activeDialog = ActiveDialog.Stroke },
                 onPadding = { activeDialog = ActiveDialog.Padding },
+                onLetterSpacing = { activeDialog = ActiveDialog.LetterSpacing },
+                onLineHeight = { activeDialog = ActiveDialog.LineHeight },
                 textDirection = textDirection,
                 onTextDirection = {
                     val supportsVertical = ComposeClockRenderer.isVerticalTextSupported()
@@ -517,6 +529,20 @@ private fun ConfigScreen(widgetId: Int) {
             onConfirm = dismiss
         )
 
+        ActiveDialog.LetterSpacing -> LetterSpacingDialog(
+            initialValue = letterSpacing,
+            onPreview = { letterSpacing = it },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
+        ActiveDialog.LineHeight -> LineHeightDialog(
+            initialValue = lineHeight,
+            onPreview = { lineHeight = it },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
         ActiveDialog.Font -> FontDialog(
             initial = fontFamily,
             onDismiss = dismiss,
@@ -579,6 +605,8 @@ private sealed interface ActiveDialog {
     data object Shadow : ActiveDialog
     data object Stroke : ActiveDialog
     data object Padding : ActiveDialog
+    data object LetterSpacing : ActiveDialog
+    data object LineHeight : ActiveDialog
     data object Font : ActiveDialog
     data object Language : ActiveDialog
     data object Region : ActiveDialog
@@ -1053,12 +1081,15 @@ private fun StyleToolbar(
     onShadow: () -> Unit,
     onStroke: () -> Unit,
     onPadding: () -> Unit,
+    onLetterSpacing: () -> Unit,
+    onLineHeight: () -> Unit,
     textDirection: String,
     onTextDirection: () -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly
     ) {
         IconToggleButton(
             checked = textStyle and Typeface.BOLD != 0,
@@ -1080,9 +1111,14 @@ private fun StyleToolbar(
             }
             Icon(painterResource(icon), contentDescription = "Text direction")
         }
-        Spacer(Modifier.weight(1f))
         IconButton(onClick = onPadding) {
             Icon(painterResource(R.drawable.format_size_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Text size")
+        }
+        IconButton(onClick = onLetterSpacing) {
+            Icon(painterResource(R.drawable.format_letter_spacing_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Letter spacing")
+        }
+        IconButton(onClick = onLineHeight) {
+            Icon(painterResource(R.drawable.format_line_spacing_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Line height")
         }
         IconButton(onClick = onTextColor) {
             Icon(painterResource(R.drawable.format_color_text_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Text color")
@@ -1328,6 +1364,11 @@ private fun ShadowDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         TextButton(onClick = {
+                            radiusProgress = 0f; dxProgress = 100f; dyProgress = 100f
+                            color = android.graphics.Color.argb(0x80, 0, 0, 0)
+                        }) { Text("Default") }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = {
                             onPreview(initialRadius, initialDx, initialDy, initialColor)
                             onDismiss()
                         }) { Text("Cancel") }
@@ -1402,6 +1443,11 @@ private fun StrokeDialog(
                         horizontalArrangement = Arrangement.End,
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        TextButton(onClick = {
+                            widthProgress = 0f
+                            color = android.graphics.Color.BLACK
+                        }) { Text("Default") }
+                        Spacer(Modifier.weight(1f))
                         TextButton(onClick = { onPreview(initialWidth, initialColor); onDismiss() }) {
                             Text("Cancel")
                         }
@@ -1467,10 +1513,90 @@ private fun PaddingDialog(
                     horizontalArrangement = Arrangement.End,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    TextButton(onClick = { percentage = 90f }) { Text("Default") }
+                    Spacer(Modifier.weight(1f))
                     TextButton(onClick = {
                         onPreview(initialPadding)
                         onDismiss()
                     }) { Text("Cancel") }
+                    TextButton(onClick = onConfirm) { Text("OK") }
+                }
+            }
+        }
+    }
+}
+
+// ── Letter spacing dialog ────────────────────────────────────────────────────
+
+@Composable
+private fun LetterSpacingDialog(
+    initialValue: Float,
+    onPreview: (Float) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    // Range: -0.1 to 0.5 em (slider 0..600 maps to -0.1..0.5)
+    var progress by remember { mutableFloatStateOf((initialValue + 0.1f) * 1000f) }
+
+    LaunchedEffect(progress) {
+        onPreview(progress / 1000f - 0.1f)
+    }
+
+    Dialog(onDismissRequest = { onPreview(initialValue); onDismiss() }) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("Letter spacing", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(16.dp))
+                SliderRow(
+                    "Spacing",
+                    "%.3f em".format(progress / 1000f - 0.1f),
+                    progress, 0f, 600f
+                ) { progress = it }
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { progress = 0.1f * 1000f }) { Text("Default") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { onPreview(initialValue); onDismiss() }) { Text("Cancel") }
+                    TextButton(onClick = onConfirm) { Text("OK") }
+                }
+            }
+        }
+    }
+}
+
+// ── Line height dialog ──────────────────────────────────────────────────────
+
+@Composable
+private fun LineHeightDialog(
+    initialValue: Float,
+    onPreview: (Float) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    // 0 = default (unspecified), otherwise em multiplier
+    // Slider 0..300 maps to 0..3.0 em
+    var progress by remember { mutableFloatStateOf(initialValue * 100f) }
+
+    LaunchedEffect(progress) {
+        onPreview(progress / 100f)
+    }
+
+    Dialog(onDismissRequest = { onPreview(initialValue); onDismiss() }) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("Line height", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(16.dp))
+                val displayValue = progress / 100f
+                SliderRow(
+                    "Height",
+                    if (displayValue == 0f) "Default" else "%.2f em".format(displayValue),
+                    progress, 0f, 300f
+                ) { progress = it }
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { progress = 0f }) { Text("Default") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { onPreview(initialValue); onDismiss() }) { Text("Cancel") }
                     TextButton(onClick = onConfirm) { Text("OK") }
                 }
             }

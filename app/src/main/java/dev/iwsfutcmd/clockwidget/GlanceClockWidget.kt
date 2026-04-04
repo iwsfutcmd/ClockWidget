@@ -55,14 +55,35 @@ class GlanceClockWidget : GlanceAppWidget() {
         val widthPx = (size.width.value * dm.density).toInt().coerceAtLeast(1)
         val heightPx = (size.height.value * dm.density).toInt().coerceAtLeast(1)
 
+        // Recompute font size if widget dimensions changed
+        val fontSize = if (prefs.fontSize > 0f &&
+            prefs.fontSizeWidth == widthPx && prefs.fontSizeHeight == heightPx
+        ) {
+            prefs.fontSize
+        } else {
+            val adjusted = ComposeClockRenderer.computeAdjustedFontSize(
+                context, text, widthPx, heightPx,
+                prefs.fontFamily, prefs.textStyle,
+                prefs.strokeWidth, prefs.textDirection, prefs.padding,
+                prefs.letterSpacing, prefs.lineHeight
+            )
+            prefs.fontSize = adjusted
+            prefs.fontSizeWidth = widthPx
+            prefs.fontSizeHeight = heightPx
+            adjusted
+        }
+
         val bitmap = ComposeClockRenderer.renderToBitmap(
             context, text, widthPx, heightPx,
             prefs.backgroundColor, prefs.textColor,
             prefs.fontFamily, prefs.textStyle,
             prefs.shadowRadius, prefs.shadowDx, prefs.shadowDy, prefs.shadowColor,
             prefs.strokeWidth, prefs.strokeColor,
+            fontSize = fontSize,
             textDirection = prefs.textDirection,
-            paddingFraction = prefs.padding
+            paddingFraction = prefs.padding,
+            letterSpacing = prefs.letterSpacing,
+            lineHeight = prefs.lineHeight
         )
 
         Image(
