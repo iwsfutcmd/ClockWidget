@@ -20,7 +20,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.Date
@@ -32,7 +31,7 @@ class ClockUpdateService : Service() {
     private val tick = object : Runnable {
         override fun run() {
             serviceScope.launch {
-                GlanceClockWidget().updateAll(this@ClockUpdateService)
+                GlanceClockWidget.tickAll(this@ClockUpdateService)
             }
             handler.postDelayed(this, nextDelay())
         }
@@ -101,9 +100,10 @@ class ClockUpdateService : Service() {
     private fun nextDelay(): Long {
         val ids = AppWidgetManager.getInstance(this)
             .getAppWidgetIds(ComponentName(this, GlanceClockWidgetReceiver::class.java))
+        if (ids.isEmpty()) return 60_000L
         val finest = ids
             .map { skeletonGranularity(ClockPrefs(this, it).skeleton) }
-            .minOrNull() ?: Granularity.SECOND
+            .minOrNull() ?: Granularity.MINUTE
         val now = System.currentTimeMillis()
         return when (finest) {
             Granularity.SECOND -> 1_000L - (now % 1_000L)

@@ -63,6 +63,14 @@ class ClockPrefs(private val context: Context, private val widgetId: Int) {
         get() = prefs.getFloat("font_size", 0f)
         set(value) = prefs.edit().putFloat("font_size", value).apply()
 
+    var textDirection: String
+        get() = prefs.getString("text_direction", "ltr") ?: "ltr"
+        set(value) = prefs.edit().putString("text_direction", value).apply()
+
+    var padding: Float
+        get() = prefs.getFloat("padding", 0f)
+        set(value) = prefs.edit().putFloat("padding", value).apply()
+
     val skeleton: String
         get() = DateTimePatternGenerator
             .getInstance(ULocale.forLanguageTag(localeTag))

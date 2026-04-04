@@ -157,6 +157,8 @@ private fun ConfigScreen(widgetId: Int) {
     var shadowColor by remember { mutableIntStateOf(prefs.shadowColor) }
     var strokeWidth by remember { mutableFloatStateOf(prefs.strokeWidth) }
     var strokeColor by remember { mutableIntStateOf(prefs.strokeColor) }
+    var textDirection by remember { mutableStateOf(prefs.textDirection) }
+    var padding by remember { mutableFloatStateOf(prefs.padding) }
 
     // ── Dialog visibility ────────────────────────────────────────────────────
     var activeDialog by remember { mutableStateOf<ActiveDialog>(ActiveDialog.None) }
@@ -180,7 +182,7 @@ private fun ConfigScreen(widgetId: Int) {
         tick, previewWidth, previewHeight,
         currentPattern, currentLocale, bgColor, textColor,
         textStyle, fontFamily, shadowRadius, shadowDx, shadowDy, shadowColor,
-        strokeWidth, strokeColor
+        strokeWidth, strokeColor, textDirection, padding
     ) {
         if (previewWidth <= 0 || previewHeight <= 0) return@LaunchedEffect
         val text = try {
@@ -190,7 +192,9 @@ private fun ConfigScreen(widgetId: Int) {
             context, text, previewWidth, previewHeight,
             bgColor, textColor, fontFamily, textStyle,
             shadowRadius, shadowDx, shadowDy, shadowColor,
-            strokeWidth, strokeColor
+            strokeWidth, strokeColor,
+            textDirection = textDirection,
+            paddingFraction = padding
         )
     }
 
@@ -208,6 +212,8 @@ private fun ConfigScreen(widgetId: Int) {
         prefs.shadowColor = shadowColor
         prefs.strokeWidth = strokeWidth
         prefs.strokeColor = strokeColor
+        prefs.textDirection = textDirection
+        prefs.padding = padding
 
         // Compute optimal font size using actual widget dimensions
         val mgr = AppWidgetManager.getInstance(context)
@@ -433,7 +439,18 @@ private fun ConfigScreen(widgetId: Int) {
                 onBgColor = { activeDialog = ActiveDialog.Color(ColorTarget.BACKGROUND) },
                 onFont = { activeDialog = ActiveDialog.Font },
                 onShadow = { activeDialog = ActiveDialog.Shadow },
-                onStroke = { activeDialog = ActiveDialog.Stroke }
+                onStroke = { activeDialog = ActiveDialog.Stroke },
+                onPadding = { activeDialog = ActiveDialog.Padding },
+                textDirection = textDirection,
+                onTextDirection = {
+                    val supportsVertical = ComposeClockRenderer.isVerticalTextSupported()
+                    textDirection = when (textDirection) {
+                        "ltr" -> "rtl"
+                        "rtl" -> if (supportsVertical) "vertical" else "ltr"
+                        "vertical" -> "ltr"
+                        else -> "ltr"
+                    }
+                }
             )
         }
     }
@@ -489,6 +506,13 @@ private fun ConfigScreen(widgetId: Int) {
             initialWidth = strokeWidth,
             initialColor = strokeColor,
             onPreview = { w, c -> strokeWidth = w; strokeColor = c },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
+        ActiveDialog.Padding -> PaddingDialog(
+            initialPadding = padding,
+            onPreview = { padding = it },
             onDismiss = dismiss,
             onConfirm = dismiss
         )
@@ -554,6 +578,7 @@ private sealed interface ActiveDialog {
     data class Color(val target: ColorTarget) : ActiveDialog
     data object Shadow : ActiveDialog
     data object Stroke : ActiveDialog
+    data object Padding : ActiveDialog
     data object Font : ActiveDialog
     data object Language : ActiveDialog
     data object Region : ActiveDialog
@@ -1026,7 +1051,10 @@ private fun StyleToolbar(
     onBgColor: () -> Unit,
     onFont: () -> Unit,
     onShadow: () -> Unit,
-    onStroke: () -> Unit
+    onStroke: () -> Unit,
+    onPadding: () -> Unit,
+    textDirection: String,
+    onTextDirection: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1044,7 +1072,18 @@ private fun StyleToolbar(
         ) {
             Icon(painterResource(R.drawable.format_italic_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Italic")
         }
+        IconButton(onClick = onTextDirection) {
+            val icon = when (textDirection) {
+                "rtl" -> R.drawable.format_textdirection_r_to_l_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                "vertical" -> R.drawable.format_textdirection_vertical_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                else -> R.drawable.format_textdirection_l_to_r_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+            }
+            Icon(painterResource(icon), contentDescription = "Text direction")
+        }
         Spacer(Modifier.weight(1f))
+        IconButton(onClick = onPadding) {
+            Icon(painterResource(R.drawable.format_size_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Text size")
+        }
         IconButton(onClick = onTextColor) {
             Icon(painterResource(R.drawable.format_color_text_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Text color")
         }
@@ -1380,6 +1419,60 @@ private fun StrokeDialog(
                     onBack = { pickingColor = false },
                     onConfirm = { pickingColor = false }
                 )
+            }
+        }
+    }
+}
+
+// ── Padding dialog ───────────────────────────────────────────────────────────
+
+@Composable
+private fun PaddingDialog(
+    initialPadding: Float,
+    onPreview: (Float) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    // Slider: 0..100 where 100 = percentage displayed, stored as fraction
+    // 100% = no padding (fraction 0), 50% = half size (fraction 0.25 per side)
+    var percentage by remember { mutableFloatStateOf(((1f - initialPadding * 2) * 100).coerceIn(1f, 100f)) }
+
+    LaunchedEffect(percentage) {
+        val fraction = (1f - percentage / 100f) / 2f
+        onPreview(fraction)
+    }
+
+    Dialog(onDismissRequest = {
+        onPreview(initialPadding)
+        onDismiss()
+    }) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("Text size", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(16.dp))
+
+                SliderRow(
+                    "Size",
+                    "${percentage.toInt()}%",
+                    percentage,
+                    1f,
+                    100f
+                ) { percentage = it }
+
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(onClick = {
+                        onPreview(initialPadding)
+                        onDismiss()
+                    }) { Text("Cancel") }
+                    TextButton(onClick = onConfirm) { Text("OK") }
+                }
             }
         }
     }

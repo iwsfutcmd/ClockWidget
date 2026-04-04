@@ -1,11 +1,12 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
 android {
     namespace 'dev.iwsfutcmd.clockwidget'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "dev.iwsfutcmd.clockwidget"
@@ -35,9 +36,6 @@ android {
         compose true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion '1.5.14'
-    }
 }
 
 dependencies {
@@ -51,4 +49,5 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
 
     implementation 'androidx.glance:glance-appwidget:1.1.1'
+    implementation 'androidx.text:text-vertical:1.0.0-alpha03'
 }
