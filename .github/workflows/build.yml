@@ -1,0 +1,115 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (debug always works; release requires signing secrets)'
+        required: false
+        default: 'debug'
+        type: choice
+        options: [debug, release]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: clockwidget-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      # --- Release signing (requires repository secrets) ---
+      # Set these in Settings → Secrets and variables → Actions:
+      #   KEYSTORE_BASE64   – base64-encoded .jks keystore file
+      #   KEYSTORE_PASSWORD – keystore password
+      #   KEY_ALIAS         – signing key alias
+      #   KEY_PASSWORD      – signing key password
+      #
+      # Generate a keystore locally with:
+      #   keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 \
+      #           -validity 10000 -alias clockwidget
+      # Then base64-encode it:
+      #   base64 -w 0 release.jks
+
+      - name: Check signing secrets
+        id: signing_check
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Decode keystore
+        if: |
+          steps.signing_check.outputs.available == 'true' &&
+          (startsWith(github.ref, 'refs/tags/v') ||
+           (github.event_name == 'workflow_dispatch' && inputs.build_type == 'release'))
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ${{ github.workspace }}/release.jks
+
+      - name: Build release APK
+        if: |
+          steps.signing_check.outputs.available == 'true' &&
+          (startsWith(github.ref, 'refs/tags/v') ||
+           (github.event_name == 'workflow_dispatch' && inputs.build_type == 'release'))
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Upload release APK artifact
+        if: |
+          steps.signing_check.outputs.available == 'true' &&
+          (startsWith(github.ref, 'refs/tags/v') ||
+           (github.event_name == 'workflow_dispatch' && inputs.build_type == 'release'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: clockwidget-release-${{ github.sha }}
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 90
+
+      # --- GitHub Release (on version tags) ---
+
+      - name: Rename APK for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk \
+               "clockwidget-${VERSION}.apk"
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk \
+               "clockwidget-${VERSION}-debug.apk"
+          fi
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: clockwidget-*.apk
+          generate_release_notes: true
