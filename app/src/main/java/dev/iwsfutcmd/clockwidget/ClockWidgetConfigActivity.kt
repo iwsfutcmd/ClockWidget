@@ -161,6 +161,13 @@ private fun ConfigScreen(widgetId: Int) {
     var padding by remember { mutableFloatStateOf(prefs.padding) }
     var letterSpacing by remember { mutableFloatStateOf(prefs.letterSpacing) }
     var lineHeight by remember { mutableFloatStateOf(prefs.lineHeight) }
+    var clockType by remember { mutableStateOf(prefs.clockType) }
+    var showRing by remember { mutableStateOf(prefs.showRing) }
+    var handStrokeWidth by remember { mutableFloatStateOf(prefs.handStrokeWidth) }
+    var handStrokeColor by remember { mutableIntStateOf(prefs.handStrokeColor) }
+    var numeralFontSize by remember { mutableFloatStateOf(prefs.numeralFontSize) }
+    var handLength by remember { mutableFloatStateOf(prefs.handLength) }
+    var numeralRotation by remember { mutableStateOf(prefs.numeralRotation) }
 
     // ── Dialog visibility ────────────────────────────────────────────────────
     var activeDialog by remember { mutableStateOf<ActiveDialog>(ActiveDialog.None) }
@@ -184,22 +191,39 @@ private fun ConfigScreen(widgetId: Int) {
         tick, previewWidth, previewHeight,
         currentPattern, currentLocale, bgColor, textColor,
         textStyle, fontFamily, shadowRadius, shadowDx, shadowDy, shadowColor,
-        strokeWidth, strokeColor, textDirection, padding, letterSpacing, lineHeight
+        strokeWidth, strokeColor, textDirection, padding, letterSpacing, lineHeight,
+        clockType, showRing, handStrokeWidth, handStrokeColor, numeralFontSize,
+        handLength, numeralRotation
     ) {
         if (previewWidth <= 0 || previewHeight <= 0) return@LaunchedEffect
-        val text = try {
-            SimpleDateFormat(currentPattern, ULocale.forLanguageTag(currentLocale)).format(Date())
-        } catch (_: Exception) { "\u2014" }
-        bitmap = ComposeClockRenderer.renderToBitmap(
-            context, text, previewWidth, previewHeight,
-            bgColor, textColor, fontFamily, textStyle,
-            shadowRadius, shadowDx, shadowDy, shadowColor,
-            strokeWidth, strokeColor,
-            textDirection = textDirection,
-            paddingFraction = padding,
-            letterSpacing = letterSpacing,
-            lineHeight = lineHeight
-        )
+        bitmap = if (clockType == "analog") {
+            AnalogClockRenderer.renderToBitmap(
+                context, java.time.LocalTime.now(), previewWidth, previewHeight,
+                bgColor, textColor, currentLocale, fontFamily, textStyle,
+                shadowRadius, shadowDx, shadowDy, shadowColor,
+                strokeWidth, strokeColor,
+                handStrokeWidth, handStrokeColor,
+                numeralFontSize = numeralFontSize,
+                showRing = showRing,
+                textDirection = textDirection,
+                handLength = handLength,
+                numeralRotation = numeralRotation
+            )
+        } else {
+            val text = try {
+                SimpleDateFormat(currentPattern, ULocale.forLanguageTag(currentLocale)).format(Date())
+            } catch (_: Exception) { "\u2014" }
+            ComposeClockRenderer.renderToBitmap(
+                context, text, previewWidth, previewHeight,
+                bgColor, textColor, fontFamily, textStyle,
+                shadowRadius, shadowDx, shadowDy, shadowColor,
+                strokeWidth, strokeColor,
+                textDirection = textDirection,
+                paddingFraction = padding,
+                letterSpacing = letterSpacing,
+                lineHeight = lineHeight
+            )
+        }
     }
 
     // ── Auto-save on pause ───────────────────────────────────────────────────
@@ -220,6 +244,13 @@ private fun ConfigScreen(widgetId: Int) {
         prefs.padding = padding
         prefs.letterSpacing = letterSpacing
         prefs.lineHeight = lineHeight
+        prefs.clockType = clockType
+        prefs.showRing = showRing
+        prefs.handStrokeWidth = handStrokeWidth
+        prefs.handStrokeColor = handStrokeColor
+        prefs.numeralFontSize = numeralFontSize
+        prefs.handLength = handLength
+        prefs.numeralRotation = numeralRotation
 
         // Compute optimal font size using actual widget dimensions
         val mgr = AppWidgetManager.getInstance(context)
@@ -317,6 +348,45 @@ private fun ConfigScreen(widgetId: Int) {
             )
             Spacer(Modifier.height(12.dp))
 
+            // ── Clock type ───────────────────────────────────────────────────
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = clockType == "digital",
+                    onClick = { clockType = "digital" },
+                    label = { Text(stringResource(R.string.config_clock_type_digital)) }
+                )
+                FilterChip(
+                    selected = clockType == "analog",
+                    onClick = { clockType = "analog" },
+                    label = { Text(stringResource(R.string.config_clock_type_analog)) }
+                )
+                if (clockType == "analog") {
+                    FilterChip(
+                        selected = showRing,
+                        onClick = { showRing = !showRing },
+                        label = { Text(stringResource(R.string.config_show_ring)) }
+                    )
+                    FilterChip(
+                        selected = numeralRotation != "upright",
+                        onClick = {
+                            numeralRotation = when (numeralRotation) {
+                                "upright" -> "outward"
+                                "outward" -> "inward"
+                                else -> "upright"
+                            }
+                        },
+                        label = {
+                            Text(when (numeralRotation) {
+                                "outward" -> stringResource(R.string.config_rotate_outward)
+                                "inward" -> stringResource(R.string.config_rotate_inward)
+                                else -> stringResource(R.string.config_rotate_numerals)
+                            })
+                        }
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+
             // ── Locale ───────────────────────────────────────────────────────
             Text(
                 stringResource(R.string.config_locale_label),
@@ -369,72 +439,75 @@ private fun ConfigScreen(widgetId: Int) {
             }
             Spacer(Modifier.height(16.dp))
 
-            // ── Skeleton ─────────────────────────────────────────────────────
-            Text(
-                stringResource(R.string.config_skeleton_label),
-                style = MaterialTheme.typography.labelLarge
-            )
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = skeletonText,
-                    onValueChange = { skeletonText = it },
-                    placeholder = { Text(stringResource(R.string.config_skeleton_hint)) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
+            // Skeleton and pattern only apply to the digital clock
+            if (clockType == "digital") {
+                // ── Skeleton ─────────────────────────────────────────────────
+                Text(
+                    stringResource(R.string.config_skeleton_label),
+                    style = MaterialTheme.typography.labelLarge
                 )
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = {
-                    val skeleton = skeletonText.trim()
-                    try {
-                        val locale = ULocale.forLanguageTag(currentLocale)
-                        val pattern = DateTimePatternGenerator.getInstance(locale)
-                            .getBestPattern(skeleton)
-                        currentPattern = pattern
-                        patternText = escape(pattern)
-                    } catch (e: Exception) {
-                        activeDialog = ActiveDialog.Error(e.message ?: "Invalid skeleton")
-                        skeletonText = DateTimePatternGenerator
-                            .getInstance(ULocale.forLanguageTag(currentLocale))
-                            .getSkeleton(currentPattern)
-                    }
-                }) { Text(stringResource(R.string.set)) }
-            }
-            Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = skeletonText,
+                        onValueChange = { skeletonText = it },
+                        placeholder = { Text(stringResource(R.string.config_skeleton_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = {
+                        val skeleton = skeletonText.trim()
+                        try {
+                            val locale = ULocale.forLanguageTag(currentLocale)
+                            val pattern = DateTimePatternGenerator.getInstance(locale)
+                                .getBestPattern(skeleton)
+                            currentPattern = pattern
+                            patternText = escape(pattern)
+                        } catch (e: Exception) {
+                            activeDialog = ActiveDialog.Error(e.message ?: "Invalid skeleton")
+                            skeletonText = DateTimePatternGenerator
+                                .getInstance(ULocale.forLanguageTag(currentLocale))
+                                .getSkeleton(currentPattern)
+                        }
+                    }) { Text(stringResource(R.string.set)) }
+                }
+                Spacer(Modifier.height(16.dp))
 
-            // ── Pattern ──────────────────────────────────────────────────────
-            Text(
-                stringResource(R.string.config_pattern_label),
-                style = MaterialTheme.typography.labelLarge
-            )
-            Spacer(Modifier.height(4.dp))
-            OutlinedTextField(
-                value = patternText,
-                onValueChange = { patternText = it },
-                placeholder = { Text(stringResource(R.string.config_pattern_hint)) },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { state ->
-                        if (!state.isFocused) {
-                            val pattern = unescape(patternText)
-                            try {
-                                SimpleDateFormat(
-                                    pattern,
-                                    ULocale.forLanguageTag(currentLocale)
-                                )
-                                currentPattern = pattern
-                                skeletonText = DateTimePatternGenerator
-                                    .getInstance(ULocale.forLanguageTag(currentLocale))
-                                    .getSkeleton(currentPattern)
-                            } catch (e: Exception) {
-                                activeDialog = ActiveDialog.Error(e.message ?: "Invalid pattern")
-                                patternText = escape(currentPattern)
+                // ── Pattern ──────────────────────────────────────────────────
+                Text(
+                    stringResource(R.string.config_pattern_label),
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = patternText,
+                    onValueChange = { patternText = it },
+                    placeholder = { Text(stringResource(R.string.config_pattern_hint)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { state ->
+                            if (!state.isFocused) {
+                                val pattern = unescape(patternText)
+                                try {
+                                    SimpleDateFormat(
+                                        pattern,
+                                        ULocale.forLanguageTag(currentLocale)
+                                    )
+                                    currentPattern = pattern
+                                    skeletonText = DateTimePatternGenerator
+                                        .getInstance(ULocale.forLanguageTag(currentLocale))
+                                        .getSkeleton(currentPattern)
+                                } catch (e: Exception) {
+                                    activeDialog = ActiveDialog.Error(e.message ?: "Invalid pattern")
+                                    patternText = escape(currentPattern)
+                                }
                             }
                         }
-                    }
-            )
-            Spacer(Modifier.height(16.dp))
+                )
+                Spacer(Modifier.height(16.dp))
+            }
 
             // ── Style toolbar ────────────────────────────────────────────────
             StyleToolbar(
@@ -450,9 +523,15 @@ private fun ConfigScreen(widgetId: Int) {
                 onFont = { activeDialog = ActiveDialog.Font },
                 onShadow = { activeDialog = ActiveDialog.Shadow },
                 onStroke = { activeDialog = ActiveDialog.Stroke },
-                onPadding = { activeDialog = ActiveDialog.Padding },
+                onPadding = {
+                    activeDialog = if (clockType == "analog") ActiveDialog.NumeralSize
+                                   else ActiveDialog.Padding
+                },
                 onLetterSpacing = { activeDialog = ActiveDialog.LetterSpacing },
                 onLineHeight = { activeDialog = ActiveDialog.LineHeight },
+                isAnalog = clockType == "analog",
+                onHandStroke = { activeDialog = ActiveDialog.HandStroke },
+                onHandLength = { activeDialog = ActiveDialog.HandLength },
                 textDirection = textDirection,
                 onTextDirection = {
                     val supportsVertical = ComposeClockRenderer.isVerticalTextSupported()
@@ -522,9 +601,32 @@ private fun ConfigScreen(widgetId: Int) {
             onConfirm = dismiss
         )
 
+        ActiveDialog.HandStroke -> StrokeDialog(
+            title = "Hand & ring outline",
+            initialWidth = handStrokeWidth,
+            initialColor = handStrokeColor,
+            onPreview = { w, c -> handStrokeWidth = w; handStrokeColor = c },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
         ActiveDialog.Padding -> PaddingDialog(
             initialPadding = padding,
             onPreview = { padding = it },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
+        ActiveDialog.NumeralSize -> NumeralSizeDialog(
+            initialValue = numeralFontSize,
+            onPreview = { numeralFontSize = it },
+            onDismiss = dismiss,
+            onConfirm = dismiss
+        )
+
+        ActiveDialog.HandLength -> HandLengthDialog(
+            initialValue = handLength,
+            onPreview = { handLength = it },
             onDismiss = dismiss,
             onConfirm = dismiss
         )
@@ -604,7 +706,10 @@ private sealed interface ActiveDialog {
     data class Color(val target: ColorTarget) : ActiveDialog
     data object Shadow : ActiveDialog
     data object Stroke : ActiveDialog
+    data object HandStroke : ActiveDialog
     data object Padding : ActiveDialog
+    data object NumeralSize : ActiveDialog
+    data object HandLength : ActiveDialog
     data object LetterSpacing : ActiveDialog
     data object LineHeight : ActiveDialog
     data object Font : ActiveDialog
@@ -1084,7 +1189,10 @@ private fun StyleToolbar(
     onLetterSpacing: () -> Unit,
     onLineHeight: () -> Unit,
     textDirection: String,
-    onTextDirection: () -> Unit
+    onTextDirection: () -> Unit,
+    isAnalog: Boolean = false,
+    onHandStroke: () -> Unit = {},
+    onHandLength: () -> Unit = {}
 ) {
     @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
     androidx.compose.foundation.layout.FlowRow(
@@ -1134,6 +1242,14 @@ private fun StyleToolbar(
         }
         IconButton(onClick = onStroke) {
             Icon(painterResource(R.drawable.border_color_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Text outline")
+        }
+        if (isAnalog) {
+            IconButton(onClick = onHandStroke) {
+                Icon(painterResource(R.drawable.border_color_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Hand & ring outline")
+            }
+            IconButton(onClick = onHandLength) {
+                Icon(painterResource(R.drawable.schedule_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = "Hand length")
+            }
         }
     }
 }
@@ -1399,7 +1515,8 @@ private fun StrokeDialog(
     initialColor: Int,
     onPreview: (Float, Int) -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+    onConfirm: () -> Unit,
+    title: String = "Text outline"
 ) {
     var widthProgress by remember { mutableFloatStateOf((initialWidth * 10).coerceIn(0f, 200f)) }
     var color by remember { mutableIntStateOf(initialColor) }
@@ -1419,7 +1536,7 @@ private fun StrokeDialog(
         ) {
             if (!pickingColor) {
                 Column(modifier = Modifier.padding(24.dp)) {
-                    Text("Text outline", style = MaterialTheme.typography.headlineSmall)
+                    Text(title, style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(16.dp))
 
                     SliderRow("Width", "%.1f dp".format(width), widthProgress, 0f, 200f) {
@@ -1517,6 +1634,113 @@ private fun PaddingDialog(
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = {
                         onPreview(initialPadding)
+                        onDismiss()
+                    }) { Text("Cancel") }
+                    TextButton(onClick = onConfirm) { Text("OK") }
+                }
+            }
+        }
+    }
+}
+
+// ── Numeral size dialog (analog) ─────────────────────────────────────────────
+
+@Composable
+private fun NumeralSizeDialog(
+    initialValue: Float,
+    onPreview: (Float) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    var size by remember { mutableFloatStateOf(initialValue.coerceIn(0f, 200f)) }
+
+    // Below 1 sp counts as Auto
+    LaunchedEffect(size) { onPreview(if (size < 1f) 0f else size) }
+
+    Dialog(onDismissRequest = {
+        onPreview(initialValue)
+        onDismiss()
+    }) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("Numeral size", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(16.dp))
+
+                SliderRow(
+                    "Size",
+                    if (size < 1f) "Auto" else "${size.toInt()} sp",
+                    size,
+                    0f,
+                    200f
+                ) { size = it }
+
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(onClick = { size = 0f }) { Text("Auto") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = {
+                        onPreview(initialValue)
+                        onDismiss()
+                    }) { Text("Cancel") }
+                    TextButton(onClick = onConfirm) { Text("OK") }
+                }
+            }
+        }
+    }
+}
+
+// ── Hand length dialog (analog) ──────────────────────────────────────────────
+
+@Composable
+private fun HandLengthDialog(
+    initialValue: Float,
+    onPreview: (Float) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    var percentage by remember {
+        mutableFloatStateOf((initialValue * 100).coerceIn(5f, 100f))
+    }
+
+    LaunchedEffect(percentage) { onPreview(percentage / 100f) }
+
+    Dialog(onDismissRequest = {
+        onPreview(initialValue)
+        onDismiss()
+    }) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("Hand length", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(16.dp))
+
+                SliderRow(
+                    "Length",
+                    "${percentage.toInt()}%",
+                    percentage,
+                    5f,
+                    100f
+                ) { percentage = it }
+
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(onClick = {
+                        percentage = AnalogClockRenderer.DEFAULT_HAND_LENGTH * 100
+                    }) { Text("Default") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = {
+                        onPreview(initialValue)
                         onDismiss()
                     }) { Text("Cancel") }
                     TextButton(onClick = onConfirm) { Text("OK") }

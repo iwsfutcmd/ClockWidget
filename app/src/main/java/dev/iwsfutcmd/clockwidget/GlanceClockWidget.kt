@@ -47,44 +47,62 @@ class GlanceClockWidget : GlanceAppWidget() {
         val tick = state[TICK_KEY] ?: 0L
 
         val prefs = ClockPrefs(context, appWidgetId)
-        val text = try {
-            SimpleDateFormat(prefs.pattern, ULocale.forLanguageTag(prefs.localeTag)).format(Date())
-        } catch (_: Exception) { "\u2014" }
 
         val dm = context.resources.displayMetrics
         val widthPx = (size.width.value * dm.density).toInt().coerceAtLeast(1)
         val heightPx = (size.height.value * dm.density).toInt().coerceAtLeast(1)
 
-        // Recompute font size if widget dimensions changed
-        val fontSize = if (prefs.fontSize > 0f &&
-            prefs.fontSizeWidth == widthPx && prefs.fontSizeHeight == heightPx
-        ) {
-            prefs.fontSize
-        } else {
-            val adjusted = ComposeClockRenderer.computeAdjustedFontSize(
-                context, text, widthPx, heightPx,
+        val bitmap = if (prefs.clockType == "analog") {
+            AnalogClockRenderer.renderToBitmap(
+                context, java.time.LocalTime.now(), widthPx, heightPx,
+                prefs.backgroundColor, prefs.textColor,
+                prefs.localeTag,
                 prefs.fontFamily, prefs.textStyle,
-                prefs.strokeWidth, prefs.textDirection, prefs.padding,
-                prefs.letterSpacing, prefs.lineHeight
+                prefs.shadowRadius, prefs.shadowDx, prefs.shadowDy, prefs.shadowColor,
+                prefs.strokeWidth, prefs.strokeColor,
+                prefs.handStrokeWidth, prefs.handStrokeColor,
+                numeralFontSize = prefs.numeralFontSize,
+                showRing = prefs.showRing,
+                textDirection = prefs.textDirection,
+                handLength = prefs.handLength,
+                numeralRotation = prefs.numeralRotation
             )
-            prefs.fontSize = adjusted
-            prefs.fontSizeWidth = widthPx
-            prefs.fontSizeHeight = heightPx
-            adjusted
-        }
+        } else {
+            val text = try {
+                SimpleDateFormat(prefs.pattern, ULocale.forLanguageTag(prefs.localeTag)).format(Date())
+            } catch (_: Exception) { "\u2014" }
 
-        val bitmap = ComposeClockRenderer.renderToBitmap(
-            context, text, widthPx, heightPx,
-            prefs.backgroundColor, prefs.textColor,
-            prefs.fontFamily, prefs.textStyle,
-            prefs.shadowRadius, prefs.shadowDx, prefs.shadowDy, prefs.shadowColor,
-            prefs.strokeWidth, prefs.strokeColor,
-            fontSize = fontSize,
-            textDirection = prefs.textDirection,
-            paddingFraction = prefs.padding,
-            letterSpacing = prefs.letterSpacing,
-            lineHeight = prefs.lineHeight
-        )
+            // Recompute font size if widget dimensions changed
+            val fontSize = if (prefs.fontSize > 0f &&
+                prefs.fontSizeWidth == widthPx && prefs.fontSizeHeight == heightPx
+            ) {
+                prefs.fontSize
+            } else {
+                val adjusted = ComposeClockRenderer.computeAdjustedFontSize(
+                    context, text, widthPx, heightPx,
+                    prefs.fontFamily, prefs.textStyle,
+                    prefs.strokeWidth, prefs.textDirection, prefs.padding,
+                    prefs.letterSpacing, prefs.lineHeight
+                )
+                prefs.fontSize = adjusted
+                prefs.fontSizeWidth = widthPx
+                prefs.fontSizeHeight = heightPx
+                adjusted
+            }
+
+            ComposeClockRenderer.renderToBitmap(
+                context, text, widthPx, heightPx,
+                prefs.backgroundColor, prefs.textColor,
+                prefs.fontFamily, prefs.textStyle,
+                prefs.shadowRadius, prefs.shadowDx, prefs.shadowDy, prefs.shadowColor,
+                prefs.strokeWidth, prefs.strokeColor,
+                fontSize = fontSize,
+                textDirection = prefs.textDirection,
+                paddingFraction = prefs.padding,
+                letterSpacing = prefs.letterSpacing,
+                lineHeight = prefs.lineHeight
+            )
+        }
 
         Image(
             provider = ImageProvider(bitmap),

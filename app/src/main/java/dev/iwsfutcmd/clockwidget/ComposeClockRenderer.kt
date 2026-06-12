@@ -140,6 +140,26 @@ object ComposeClockRenderer {
 
     fun isVerticalTextSupported(): Boolean = Build.VERSION.SDK_INT >= 36
 
+    /**
+     * Resolves a font name (system family or Google Font) to a native Typeface
+     * for canvas drawing. Async Google Font loads may return a fallback on the
+     * first call; the cached resolver serves the real font on later renders.
+     */
+    fun resolveTypeface(context: Context, fontFamily: String, textStyle: Int): android.graphics.Typeface {
+        val isBold   = textStyle and android.graphics.Typeface.BOLD   != 0
+        val isItalic = textStyle and android.graphics.Typeface.ITALIC != 0
+        return try {
+            getFontResolver(context).resolve(
+                fontFamilyFor(context, fontFamily),
+                if (isBold) FontWeight.Bold else FontWeight.Normal,
+                if (isItalic) FontStyle.Italic else FontStyle.Normal
+            ).value as android.graphics.Typeface
+        } catch (e: Exception) {
+            Log.e(TAG, "Typeface resolve failed for $fontFamily: $e")
+            buildNativeTypeface(fontFamily, textStyle)
+        }
+    }
+
     private fun buildNativeTypeface(fontFamily: String, textStyle: Int): android.graphics.Typeface {
         val base = when (fontFamily) {
             "sans-serif" -> android.graphics.Typeface.SANS_SERIF
