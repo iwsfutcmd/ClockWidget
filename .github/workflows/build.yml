@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'Build type (debug always works; release requires signing secrets)'
+        description: 'Build type (release is debug-signed unless signing secrets are set)'
         required: false
         default: 'debug'
         type: choice
@@ -41,8 +41,12 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
-      # --- Release signing (requires repository secrets) ---
-      # Set these in Settings → Secrets and variables → Actions:
+      # --- Release build ---
+      # Without signing secrets, release APKs are signed with the runner's
+      # auto-generated debug key — installable, but the key differs between
+      # runs, so updating an existing install requires uninstalling first.
+      # For a stable signature, set these repository secrets in
+      # Settings → Secrets and variables → Actions:
       #   KEYSTORE_BASE64   – base64-encoded .jks keystore file
       #   KEYSTORE_PASSWORD – keystore password
       #   KEY_ALIAS         – signing key alias
@@ -72,11 +76,10 @@ jobs:
 
       - name: Build release APK
         if: |
-          steps.signing_check.outputs.available == 'true' &&
-          (startsWith(github.ref, 'refs/tags/v') ||
-           (github.event_name == 'workflow_dispatch' && inputs.build_type == 'release'))
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && inputs.build_type == 'release')
         env:
-          KEYSTORE_PATH: ${{ github.workspace }}/release.jks
+          KEYSTORE_PATH: ${{ steps.signing_check.outputs.available == 'true' && format('{0}/release.jks', github.workspace) || '' }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -84,9 +87,8 @@ jobs:
 
       - name: Upload release APK artifact
         if: |
-          steps.signing_check.outputs.available == 'true' &&
-          (startsWith(github.ref, 'refs/tags/v') ||
-           (github.event_name == 'workflow_dispatch' && inputs.build_type == 'release'))
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && inputs.build_type == 'release')
         uses: actions/upload-artifact@v4
         with:
           name: clockwidget-release-${{ github.sha }}
